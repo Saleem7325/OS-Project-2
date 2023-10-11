@@ -128,6 +128,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		exit(1);		
 	}
 
+	// TODO: Make a successor context for schedule function and 
+	// assign that context to uc_link 
 	tctx->uc_link = NULL;
 	tctx->uc_stack.ss_sp = stack;
 	tctx->uc_stack.ss_size = STACK_SIZE;
