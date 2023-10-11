@@ -17,6 +17,9 @@
 #define SCHEDULED 1
 #define BLOCKED 2
 
+/* Stack Size for TCB */
+#define STACK_SIZE SIGSTKSZ
+
 /* include lib header files that you need here: */
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -26,6 +29,7 @@
 
 /* Were not included in unedited file */
 #include <ucontext.h>
+#include <signal.h>
 
 typedef uint worker_t;
 
@@ -38,11 +42,11 @@ typedef struct TCB {
 	// thread priority
 	// And more ...
 
-	worker_t;
-	int status;
-	ucontext_t context;
+	worker_t *thread_id;
+	int *status;
+	ucontext_t *context;
 	void *stack;
-	int priority;	
+	int *priority;	
 } tcb; 
 
 /* mutex struct definition */
@@ -55,10 +59,38 @@ typedef struct worker_mutex_t {
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
-// YOUR CODE HERE
+/* Node in linked list based queue */
+typedef struct node{
+	void *data;
+	struct node *next;
+} node;
 
+typedef struct run_queue{
+	node *head;
+	node *tail;
+	int size;
+} run_queue;
 
 /* Function Declarations: */
+
+/* Given a pointer to a run_queue, function sets head/tail to NULL and size to 0 */
+void init_queue(run_queue *q);
+
+/* Add data to the back of the queue */
+void enqueue(run_queue *q,  void *data);
+
+/* Remove data from the front of the queue and return a pointer to the data
+ * if run_queue is empty returns NULL 
+ */
+void *dequeue(run_queue *q);
+
+/* Frees all data and nodes as well as freeing the queue */
+void free_queue(run_queue *q);
+
+/* Creates a run queue struct and initializes its values 
+ * returns a pointer to the run_queue that was created
+ */
+run_queue *make_run_queue();
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, void

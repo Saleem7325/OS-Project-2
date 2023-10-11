@@ -62,9 +62,11 @@ void *dequeue(run_queue *q){
 void free_queue(run_queue *q){
 	node *tmp = q->head;
 	while(tmp != NULL){
-		node *f_node = tmp;
+		node *prev = tmp;
 		tmp = tmp->next;
-		free(f_node); 
+
+		free(prev->data);
+		free(prev); 
 	}
 
 	free(q);
@@ -82,7 +84,7 @@ int main(int argc, char **argv){
 		printf("SIZE: %d\n", rq->size);
 	}
 
-	for(int i = 0; i < 33; i++){
+/*	for(int i = 0; i < 33; i++){
 		int *num = (int *)dequeue(rq); 
 		if(num == NULL){
 			printf("NULL\n");
@@ -92,6 +94,6 @@ int main(int argc, char **argv){
 		free(num);
 		printf("SIZE: %d\n", rq->size);
 	}
-
+*/
 	free_queue(rq);	
 }

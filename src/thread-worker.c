@@ -14,40 +14,159 @@ double avg_resp_time=0;
 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
-// YOUR CODE HERE
 
+run_queue *rq = NULL;
+
+/*_____________ run_queue functions ____________*/
+
+void init_queue(run_queue *q){
+	q->head, q->tail = NULL;
+	q->size = 0;
+}
+
+void enqueue(run_queue *q, void  *data){
+	if(q->tail == NULL){
+		q->tail = malloc(sizeof(node));
+		q->tail->data = data; 
+		q->tail->next = NULL;
+		q->head = q->tail;
+	}else{
+		node *tmp = malloc(sizeof(node));
+		tmp->data = data;
+		tmp->next = NULL;
+		q->tail->next = tmp;
+		q->tail = tmp;
+	}
+ 
+	q->size++;
+}
+
+void *dequeue(run_queue *q){
+	if(q->head == NULL){
+		return NULL;
+	}else if(q->head == q->tail){
+		void *data = q->head->data;
+		free(q->head);
+
+		q->head = NULL;
+		q->tail = NULL; 
+		q->size--;
+
+		return data;    
+	}
+
+	void *data = q->head->data;
+	node *tmp = q->head;
+	q->head = q->head->next;
+	free(tmp);
+	q->size--;
+
+	return data;    
+}
+
+/* TODO: Update function to free every dynamic mem-reference in TCB */
+void free_queue(run_queue *q){
+	node *tmp = q->head;
+	while(tmp != NULL){
+		node *prev = tmp;
+		tmp = tmp->next;
+
+		free(prev->data);
+		free(prev); 
+	}
+
+	free(q);
+}
+
+run_queue *make_run_queue(){
+	run_queue *q = malloc(sizeof(run_queue));	
+	init_queue(q);
+
+	return q;
+}
+
+/*_____________ worker_t functions ____________*/
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
 
-       // - create Thread Control Block (TCB)
-       // - create and initialize the context of this worker thread
-       // - allocate space of stack for this thread to run
-       // after everything is set, push this thread into run queue and 
-       // - make it ready for the execution.
+       	// - create Thread Control Block (TCB)
+       	// - create and initialize the context of this worker thread
+	// - allocate space of stack for this thread to run
+	//   after everything is set, push this thread into run queue and 
+	// - make it ready for the execution.
 
-       // YOUR CODE HERE
+	// Create a pointer to TCB
+	tcb *control_block = malloc(sizeof(tcb));
+
+	// Set thread ID
+	control_block->thread_id = malloc(sizeof(worker_t));	
+	*(control_block->thread_id) = *thread;
+
+	// Set thread status 
+	control_block->status = malloc(sizeof(int));	
+	*(control_block->status) = READY;	
+
+	// Set thread priority, using 1 as default for testing
+	control_block->priority = malloc(sizeof(int));	
+	*(control_block->priority) = 1;
+
+	// Set up context for thread	
+	ucontext_t *tctx = malloc(sizeof(ucontext_t));
+	if(getcontext(tctx) < 0){
+		// For test purposes only
+		perror("worker_create: getcontext");
+		exit(1);
+	}
+
+	// Allocate stack for context
+	void *stack = malloc(STACK_SIZE);
+	if(stack == NULL){
+		// For test purposes only
+		perror("worker_create: tcb stack allocation");
+		exit(1);		
+	}
+
+	tctx->uc_link = NULL;
+	tctx->uc_stack.ss_sp = stack;
+	tctx->uc_stack.ss_size = STACK_SIZE;
+	tctx->uc_stack.ss_flags = 0;	
+
+	// Make the context start running at the function passed as arg	
+	// TODO: getting a wanring from passing function, will need to 
+	// resolve
+	makecontext(tctx, function, 1, arg);
+	control_block->context = tctx;
 	
-    return 0;
+	// If run queue does not exist(in the case of first call),
+	// create the run queue
+	if(!rq){
+		rq = make_run_queue();
+	}
+
+	// Push TCB onto run queue
+	enqueue(rq, (void *)control_block);	
+					
+	return 0;
 };
 
 /* give CPU possession to other user-level worker threads voluntarily */
 int worker_yield() {
-	
+		
 	// - change worker thread's state from Running to Ready
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 
 	// YOUR CODE HERE
-	
+			
 	return 0;
 };
 
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
-
+	
 	// YOUR CODE HERE
 };
 
