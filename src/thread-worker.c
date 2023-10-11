@@ -159,6 +159,33 @@ int worker_yield() {
 	// - switch from thread context to scheduler context
 
 	// YOUR CODE HERE
+
+	//Checking if run queue exists. If no, no need to yield.
+	if(!rq) {
+		return -1;
+	}
+
+	//Checking if current thread exists (not the first call)
+	if (rq->size == 0) {
+		return -1;
+	}
+
+	//Save current thread's context
+	tcb *current_thread = (tcb *)dequeue(rq);
+	if (getcontext(current_thread->context) == -1) {
+		//handle error
+		perror("worker_yield: getcontext error");
+		exit(1);
+	}
+
+	//Change the state of thread to READY.
+	*(current_thread->status) = READY;
+
+	//Enqueue the thread back to run queue, as it's still READY to run.
+	enqueue(rq, (void *)current_thread);
+
+	//switch from thread context to scheduler context here, comeback after scheduler done
+	//setcontext(scheduler);
 			
 	return 0;
 };
