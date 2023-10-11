@@ -87,6 +87,33 @@ run_queue *make_run_queue(){
 
 /*_____________ worker_t functions ____________*/
 
+static void schedule();
+
+/* Creates context for scheduler */
+ucontext_t *scheduler_context(){
+	ucontext_t *sctx = malloc(sizeof(ucontext_t));
+	if(getcontext(sctx) < 0){
+		// For test purposes only
+		perror("worker_create: scheduler_context");
+		exit(1);
+	}
+
+	void *stack = malloc(STACK_SIZE);
+	if(stack == NULL){
+		// For test purposes only
+		perror("worker_create: scheduler stack allocation");
+		exit(1);		
+	}	
+	
+	sctx->uc_link = NULL;
+	sctx->uc_stack.ss_sp = stack;
+	sctx->uc_stack.ss_size = STACK_SIZE;
+	sctx->uc_stack.ss_flags = 0;
+
+	makecontext(sctx, &schedule, 0);
+	return sctx;
+}
+
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
@@ -128,9 +155,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		exit(1);		
 	}
 
-	// TODO: Make a successor context for schedule function and 
-	// assign that context to uc_link 
-	tctx->uc_link = NULL;
+	tctx->uc_link = scheduler_context();
 	tctx->uc_stack.ss_sp = stack;
 	tctx->uc_stack.ss_size = STACK_SIZE;
 	tctx->uc_stack.ss_flags = 0;	
