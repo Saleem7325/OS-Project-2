@@ -17,6 +17,9 @@
 #define SCHEDULED 1
 #define BLOCKED 2
 
+/* Minimum number of microsends a thread can run before context switch */
+#define QUANTUM 10000
+
 /* Stack Size for TCB */
 #define STACK_SIZE SIGSTKSZ
 
@@ -30,6 +33,9 @@
 /* Were not included in unedited file */
 #include <ucontext.h>
 #include <signal.h>
+#include <sys/time.h>
+#include <string.h>
+
 
 typedef uint worker_t;
 

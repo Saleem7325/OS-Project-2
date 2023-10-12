@@ -14,11 +14,19 @@ double avg_resp_time=0;
 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
-
 run_queue *rq = NULL;
 
 // Scheduler context
 ucontext_t *sch_ctx = NULL;
+
+// Currently running thread's TCB
+tcb *curr_tcb = NULL;
+
+// Timer for interupts
+struct itimerval *timer = NULL;
+
+// sigaction for registering signal handler
+struct sigaction *sa = NULL;
 
 /*_____________ run_queue functions ____________*/
 
@@ -65,6 +73,11 @@ void *dequeue(run_queue *q){
 	q->size--;
 
 	return data;    
+}
+
+/* TODO: Dequeue the node with minimum counter/elapsed value */
+void *psjf_dequeue(run_queue *q){
+		
 }
 
 /* TODO: Update function to free every dynamic mem-reference in TCB */
@@ -166,7 +179,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	}
 
 	// Set thread context attributes
-	tctx->uc_link = sch_cxt; 
+	tctx->uc_link = sch_ctx; 
 	tctx->uc_stack.ss_sp = stack;
 	tctx->uc_stack.ss_size = STACK_SIZE;
 	tctx->uc_stack.ss_flags = 0;	
@@ -280,7 +293,25 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 	return 0;
 };
 
-/* scheduler */
+void create_timer(){
+	timer = malloc(sizeof(struct itimerval));
+	timer->it_interval.tv_usec = 0;
+	timer->it_interval.tv_sec = 0;	
+}
+
+void reset_timer(){
+	timer->it_value.tv_usec = QUANTUM;
+	timer->it_value.tv_sec = 0;
+}
+
+void create_sig_handler(){
+	sa = malloc(sizeof(struct sigaction));
+	memset(sa, 0, sizeof(*sa));
+	sa->sa_handler = &schedule;
+	sigaction(SIGPROF, sa, NULL); 
+}
+
+/* scheduler currently implements cfs and does not call MLFQ/PSJF */
 static void schedule() {
 	// - every time a timer interrupt occurs, your worker thread library 
 	// should be contexted switched from a thread context to this 
@@ -295,7 +326,42 @@ static void schedule() {
 
 	// YOUR CODE HERE
 
-	
+	// if run queue is null return
+	if(!rq){
+		return;
+	}	
+
+	// Signal handler has not been created
+	if(!sa){
+		create_sig_handler();
+	}
+
+	// Timer has not been created
+	if(!timer){
+		create_timer();
+	}
+
+	if(rq->size == 0){
+		//TODO: Likely need to switch to main context
+	}
+
+	//TODO: need to check if curr_tcb was interrupted by timer need to 
+	// figure out how to handle that case 
+
+	// If no thread has been interrupted by timer dequeue
+	// a thread and start executing its context
+	if(curr_tcb == NULL){
+		tcb *curr_tcb = (tcb *)dequeue(rq);
+		
+		// Reset timer value to QUANTUM macro value and start timer
+		reset_timer();	
+		setitimer(ITIMER_PROF, timer, NULL);
+
+		// Set context to curr_tcb context to being executing thread
+		setcontext(curr_tcb->context);				
+	}
+
+		
 
 // - schedule policy
 #ifndef MLFQ
