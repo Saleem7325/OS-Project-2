@@ -223,6 +223,13 @@ int worker_yield() {
 		perror("worker_yield: getcontext error");
 		exit(1);
 	}
+	
+	//adding a check if we are returning from getcontext()
+	if (*(current_thread->status) == RUNNING) {
+		//The thread is returning from setcontext.
+		return 0;
+	}
+
 
 	//Change the state of thread to READY.
 	*(current_thread->status) = READY;
