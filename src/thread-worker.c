@@ -17,6 +17,9 @@ double avg_resp_time=0;
 
 run_queue *rq = NULL;
 
+// Scheduler context
+ucontext_t *sch_ctx = NULL;
+
 /*_____________ run_queue functions ____________*/
 
 void init_queue(run_queue *q){
@@ -124,6 +127,13 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	//   after everything is set, push this thread into run queue and 
 	// - make it ready for the execution.
 
+	// If run queue does not exist(in the case of first call),
+	// create the run queue
+	if(!rq){
+		rq = make_run_queue();
+		sch_ctx = scheduler_context();	
+	}
+
 	// Create a pointer to TCB
 	tcb *control_block = malloc(sizeof(tcb));
 
@@ -155,26 +165,22 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		exit(1);		
 	}
 
-	tctx->uc_link = scheduler_context();
+	// Set thread context attributes
+	tctx->uc_link = sch_cxt; 
 	tctx->uc_stack.ss_sp = stack;
 	tctx->uc_stack.ss_size = STACK_SIZE;
 	tctx->uc_stack.ss_flags = 0;	
 
 	// Make the context start running at the function passed as arg	
-	// TODO: getting a wanring from passing function, will need to 
-	// resolve
-	makecontext(tctx, function, 1, arg);
+	makecontext(tctx, (void *)function, 1, arg);
 	control_block->context = tctx;
-	
-	// If run queue does not exist(in the case of first call),
-	// create the run queue
-	if(!rq){
-		rq = make_run_queue();
-	}
 
 	// Push TCB onto run queue
 	enqueue(rq, (void *)control_block);	
-					
+	
+	// Switch to scheduler context					
+	setcontext(sch_ctx);
+	
 	return 0;
 };
 
@@ -288,6 +294,8 @@ static void schedule() {
 	// 		sched_mlfq();
 
 	// YOUR CODE HERE
+
+	
 
 // - schedule policy
 #ifndef MLFQ
