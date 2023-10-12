@@ -16,6 +16,7 @@
 #define READY 0
 #define SCHEDULED 1
 #define BLOCKED 2
+#define RUNNING 3
 
 /* Minimum number of microsends a thread can run before context switch */
 #define QUANTUM 10000
