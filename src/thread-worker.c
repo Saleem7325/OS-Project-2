@@ -15,18 +15,19 @@ double avg_resp_time=0;
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 run_queue *rq = NULL;
-
-// Scheduler context
-ucontext_t *sch_ctx = NULL;
+list *exit_list = NULL;
 
 // Currently running thread's TCB
 tcb *curr_tcb = NULL;
 
+// Scheduler context
+ucontext_t sch_ctx;
+
 // Timer for interupts
-struct itimerval *timer = NULL;
+struct itimerval timer;
 
 // sigaction for registering signal handler
-struct sigaction *sa = NULL;
+struct sigaction sa;
 
 /*_____________ run_queue functions ____________*/
 
@@ -94,78 +95,156 @@ void free_queue(run_queue *q){
 	free(q);
 }
 
-run_queue *make_run_queue(){
-	run_queue *q = malloc(sizeof(run_queue));	
-	init_queue(q);
+/*_______________ List functions _____________*/
 
-	return q;
+void init_list(list *lst){
+	lst->head = NULL;
+	lst->size = 0;
 }
 
-/*_____________ worker_t functions ____________*/
+void add(list *lst, worker_t data){
+    l_node *tmp = (l_node *)malloc(sizeof(l_node));
+    tmp->data = data;
+    lst->size++;
+
+    if(!lst->head){
+        tmp->next = NULL;
+        lst->head = tmp;
+        return;
+    }
+
+    tmp->next = lst->head;
+    lst->head = tmp;
+}
+
+int get(list *lst, worker_t data){
+    if(!lst || !lst->head){
+        return -1;
+    }
+
+    int ret = -1;
+    if(lst->head->data == data){
+        ret = lst->head->data;
+       
+        l_node *hd = lst->head;
+        lst->head = lst->head->next;
+        free(hd);
+        lst->size--;
+
+        return ret;
+    }
+
+    l_node *tmp = lst->head;
+    l_node *next = tmp->next;
+
+    while(next != NULL){
+        if(next->data == data){
+            ret = next->data;
+            tmp->next = next->next;
+            free(next);
+             lst->size--;
+            break;
+        }
+
+        tmp = next;
+        next = next->next;
+    }
+
+    return ret;
+}
+
+void free_list(list *lst){
+	l_node *tmp = lst->head;
+	while(tmp != NULL){
+		l_node *prev = tmp;
+		tmp = tmp->next;
+		free(prev); 
+	}
+
+	free(lst);
+}
+
+/*_____________ Set up functions ____________*/
 
 static void schedule();
 
 /* Creates context for scheduler */
-ucontext_t *scheduler_context(){
-	ucontext_t *sctx = malloc(sizeof(ucontext_t));
-	if(getcontext(sctx) < 0){
-		// For test purposes only
-		perror("worker_create: scheduler_context");
-		exit(1);
-	}
+// ucontext_t *scheduler_context(){
+// 	ucontext_t *sctx;
+// 	if(getcontext(sctx) < 0){
+// 		// For test purposes only
+// 		perror("worker_create: scheduler_context");
+// 		exit(1);
+// 	}
 
-	void *stack = malloc(STACK_SIZE);
-	if(stack == NULL){
-		// For test purposes only
-		perror("worker_create: scheduler stack allocation");
-		exit(1);		
-	}	
+// 	void *stack = malloc(STACK_SIZE);
+// 	if(stack == NULL){
+// 		// For test purposes only
+// 		perror("worker_create: scheduler stack allocation");
+// 		exit(1);		
+// 	}	
 	
-	sctx->uc_link = NULL;
-	sctx->uc_stack.ss_sp = stack;
-	sctx->uc_stack.ss_size = STACK_SIZE;
-	sctx->uc_stack.ss_flags = 0;
+// 	sctx->uc_link = NULL;
+// 	sctx->uc_stack.ss_sp = stack;
+// 	sctx->uc_stack.ss_size = STACK_SIZE;
+// 	sctx->uc_stack.ss_flags = 0;
 
-	makecontext(sctx, &schedule, 0);
-	return sctx;
+// 	makecontext(sctx, &schedule, 0);
+// 	return sctx;
+// }
+
+void set_timer(){
+	timer.it_interval.tv_usec = 0;
+	timer.it_interval.tv_sec = 0;
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0;
 }
 
-/* create a new thread */
-int worker_create(worker_t * thread, pthread_attr_t * attr, 
-                      void *(*function)(void*), void * arg) {
+void init(){
+	set_timer();
 
-       	// - create Thread Control Block (TCB)
-       	// - create and initialize the context of this worker thread
+	// Create signal handler
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = &schedule;
+	sigaction(SIGPROF, &sa, NULL);
+
+	// create run queue
+	rq = (run_queue *)malloc(sizeof(run_queue));	
+	init_queue(rq);
+
+	// create exit list
+	exit_list =  (list *)malloc(sizeof(list));
+	init_list(exit_list);
+
+	// Get scheduler context
+	// sch_ctx = scheduler_context();
+}
+
+/*_____________ worker_t functions ____________*/
+
+/* create a new thread */
+int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
+    // - create Thread Control Block (TCB)
+    // - create and initialize the context of this worker thread
 	// - allocate space of stack for this thread to run
 	//   after everything is set, push this thread into run queue and 
 	// - make it ready for the execution.
-
-	// If run queue does not exist(in the case of first call),
-	// create the run queue
-	if(!rq){
-		rq = make_run_queue();
-		sch_ctx = scheduler_context();	
-	}
 
 	// Create a pointer to TCB
 	tcb *control_block = malloc(sizeof(tcb));
 
 	// Set thread ID
-	control_block->thread_id = malloc(sizeof(worker_t));	
-	*(control_block->thread_id) = *thread;
+	control_block->thread_id = *thread;	
 
 	// Set thread status 
-	control_block->status = malloc(sizeof(int));	
-	*(control_block->status) = READY;	
+	control_block->status = READY;	
 
 	// Set thread priority, using 1 as default for testing
-	control_block->priority = malloc(sizeof(int));	
-	*(control_block->priority) = 1;
+	control_block->priority = 1;
 
 	// Set up context for thread	
-	ucontext_t *tctx = malloc(sizeof(ucontext_t));
-	if(getcontext(tctx) < 0){
-		// For test purposes only
+	ucontext_t tctx;
+	if(getcontext(&tctx) < 0){
 		perror("worker_create: getcontext");
 		exit(1);
 	}
@@ -173,81 +252,165 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	// Allocate stack for context
 	void *stack = malloc(STACK_SIZE);
 	if(stack == NULL){
-		// For test purposes only
 		perror("worker_create: tcb stack allocation");
 		exit(1);		
 	}
 
 	// Set thread context attributes
-	tctx->uc_link = sch_ctx; 
-	tctx->uc_stack.ss_sp = stack;
-	tctx->uc_stack.ss_size = STACK_SIZE;
-	tctx->uc_stack.ss_flags = 0;	
+	tctx.uc_link = NULL; 
+	tctx.uc_stack.ss_sp = stack;
+	tctx.uc_stack.ss_size = STACK_SIZE;
+	tctx.uc_stack.ss_flags = 0;	
 
 	// Make the context start running at the function passed as arg	
-	makecontext(tctx, (void *)function, 1, arg);
+	makecontext(&tctx, (void *)function, 1, arg);
 	control_block->context = tctx;
 
-	// Push TCB onto run queue
-	enqueue(rq, (void *)control_block);	
+	// If run queue does not exist(in the case of first call),
+	// create the run queue
+	if(!rq){
+		init();
+		ucontext_t mctx;
+
+		// Create a pointer to TCB
+		tcb *main_tcb = malloc(sizeof(tcb));
+		main_tcb->thread_id = 0;
+		main_tcb->status = READY;	
+		main_tcb->priority = 1;
+		main_tcb->context = mctx;
+
+		if(getcontext(&mctx) < 0){
+			perror("worker_create: main getcontext");
+			exit(1);
+		}
+
+		// Check is current context was a result of setcontext()
+		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
+			return 0;
+		}
+
+		// Push TCB onto run queue
+		enqueue(rq, (void *)control_block);
+		enqueue(rq, (void *)main_tcb);
+	}else{
+		enqueue(rq, (void *)control_block);
+	}
+
+	// Continue executing thread
+	if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
+		return 0;
+	}	
 	
 	// Switch to scheduler context					
-	setcontext(sch_ctx);
+	// setcontext(sch_ctx);
+	schedule();
 	
 	return 0;
 };
 
 /* give CPU possession to other user-level worker threads voluntarily */
 int worker_yield() {
-		
 	// - change worker thread's state from Running to Ready
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 
-	// YOUR CODE HERE
-
-	//Checking if run queue exists. If no, no need to yield.
+	// Checking if run queue exists. If no, no need to yield.
 	if(!rq) {
 		return -1;
 	}
 
-	//Checking if current thread exists (not the first call)
+	// If no other threads to run, continue running thread
 	if (rq->size == 0) {
 		return -1;
 	}
 
-	//Save current thread's context
-	tcb *current_thread = (tcb *)dequeue(rq);
-	if (getcontext(current_thread->context) == -1) {
-		//handle error
+	// Sanity check
+	if(!curr_tcb){
+		printf("worker_yield: current tcb is null");
+		return -1;
+	}
+
+	// Update status of yeilding thread
+	curr_tcb->status = READY;
+	if(getcontext(&(curr_tcb->context)) < 0){
 		perror("worker_yield: getcontext error");
 		exit(1);
 	}
-	
-	//adding a check if we are returning from getcontext()
-	if (*(current_thread->status) == RUNNING) {
-		//The thread is returning from setcontext.
+
+	// If curr_tcb is set again using setcontext
+	if(curr_tcb->status == SCHEDULED){
 		return 0;
 	}
 
+	// Add yielding thread to run_queue
+	enqueue(rq, (void *)curr_tcb);
+	curr_tcb = NULL;
 
-	//Change the state of thread to READY.
-	*(current_thread->status) = READY;
-
-	//Enqueue the thread back to run queue, as it's still READY to run.
-	enqueue(rq, (void *)current_thread);
-
-	//switch from thread context to scheduler context here, comeback after scheduler done
-	//setcontext(scheduler);
+	//switch from thread context to scheduler context
+	// setcontext(sch_ctx);
+	schedule();
 			
 	return 0;
 };
 
+// /* give CPU possession to other user-level worker threads voluntarily */
+// int worker_yield() {
+		
+// 	// - change worker thread's state from Running to Ready
+// 	// - save context of this thread to its thread control block
+// 	// - switch from thread context to scheduler context
+
+// 	// YOUR CODE HERE
+
+// 	//Checking if run queue exists. If no, no need to yield.
+// 	if(!rq) {
+// 		return -1;
+// 	}
+
+// 	//Checking if current thread exists (not the first call)
+// 	if (rq->size == 0) {
+// 		return -1;
+// 	}
+
+// 	//Save current thread's context
+// 	tcb *current_thread = (tcb *)dequeue(rq);
+// 	if (getcontext(current_thread->context) == -1) {
+// 		//handle error
+// 		perror("worker_yield: getcontext error");
+// 		exit(1);
+// 	}
+	
+// 	//adding a check if we are returning from getcontext()
+// 	if (*(current_thread->status) == RUNNING) {
+// 		//The thread is returning from setcontext.
+// 		return 0;
+// 	}
+
+
+// 	//Change the state of thread to READY.
+// 	*(current_thread->status) = READY;
+
+// 	//Enqueue the thread back to run queue, as it's still READY to run.
+// 	enqueue(rq, (void *)current_thread);
+
+// 	//switch from thread context to scheduler context here, comeback after scheduler done
+// 	//setcontext(scheduler);
+			
+// 	return 0;
+// };
+
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
+	// - add thread id to exit list
+	add(exit_list, curr_tcb->thread_id);
+
 	// - de-allocate any dynamic memory created when starting this thread
+	free(curr_tcb->stack);
+	free(curr_tcb);
+	curr_tcb = NULL;
 	
-	// YOUR CODE HERE
+	//TODO: save value of arg, need to update list
+	schedule();
 };
 
 
@@ -258,6 +421,16 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// - de-allocate any dynamic memory created by the joining thread
   
 	// YOUR CODE HERE
+
+	// While the thread we are waiting on is not in the exit list
+	// yeild to give other threads in run queue CPU resource
+	while(get(exit_list, thread) == -1){
+		worker_yield();
+	}
+
+	// Need to get return value
+
+	// Assuming yield de-allocates all tcb memory nothing left to
 	return 0;
 };
 
@@ -300,24 +473,6 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 	return 0;
 };
 
-void create_timer(){
-	timer = malloc(sizeof(struct itimerval));
-	timer->it_interval.tv_usec = 0;
-	timer->it_interval.tv_sec = 0;	
-}
-
-void reset_timer(){
-	timer->it_value.tv_usec = QUANTUM;
-	timer->it_value.tv_sec = 0;
-}
-
-void create_sig_handler(){
-	sa = malloc(sizeof(struct sigaction));
-	memset(sa, 0, sizeof(*sa));
-	sa->sa_handler = &schedule;
-	sigaction(SIGPROF, sa, NULL); 
-}
-
 /* scheduler currently implements cfs and does not call MLFQ/PSJF */
 static void schedule() {
 	// - every time a timer interrupt occurs, your worker thread library 
@@ -332,41 +487,35 @@ static void schedule() {
 	// 		sched_mlfq();
 
 	// YOUR CODE HERE
+	if (getcontext(&sch_ctx) < 0){
+		perror("schedule: getcontext");
+		exit(1);
+	}
 
-	// if run queue is null return
 	if(!rq){
 		return;
-	}	
-
-	// Signal handler has not been created
-	if(!sa){
-		create_sig_handler();
 	}
 
-	// Timer has not been created
-	if(!timer){
-		create_timer();
+	if(curr_tcb == NULL && rq->size == 0){
+		return;
 	}
-
-	if(rq->size == 0){
-		//TODO: Likely need to switch to main context
-	}
-
-	//TODO: need to check if curr_tcb was interrupted by timer need to 
-	// figure out how to handle that case 
 
 	// If no thread has been interrupted by timer dequeue
 	// a thread and start executing its context
-	if(curr_tcb == NULL){
-		tcb *curr_tcb = (tcb *)dequeue(rq);
+	if(curr_tcb == NULL && rq->size > 0){
+		curr_tcb = (tcb *)dequeue(rq);			
+	}else if (rq->size > 0){
+		curr_tcb->status = READY;
+		enqueue(rq, curr_tcb);
 		
-		// Reset timer value to QUANTUM macro value and start timer
-		reset_timer();	
-		setitimer(ITIMER_PROF, timer, NULL);
-
-		// Set context to curr_tcb context to being executing thread
-		setcontext(curr_tcb->context);				
+		curr_tcb = (tcb *)dequeue(rq);
+		curr_tcb->status = SCHEDULED;
 	}
+
+	set_timer();	
+	setitimer(ITIMER_PROF, &timer, NULL);	
+	swapcontext(&sch_ctx, &(curr_tcb->context));
+	setcontext(&sch_ctx);
 
 		
 

@@ -48,11 +48,11 @@ typedef struct TCB {
 	// thread priority
 	// And more ...
 
-	worker_t *thread_id;
-	int *status;
-	ucontext_t *context;
+	worker_t thread_id;
+	int status;
+	ucontext_t context;
 	void *stack;
-	int *priority;	
+	int priority;	
 } tcb; 
 
 /* mutex struct definition */
@@ -71,11 +71,29 @@ typedef struct node{
 	struct node *next;
 } node;
 
+/*
+ * Generic type linked-list based queue which maintains a pointer 
+ * to head and tail for constant time dequeue and enqueue operations 
+*/
 typedef struct run_queue{
 	node *head;
 	node *tail;
 	int size;
 } run_queue;
+
+/* Node in list */
+typedef struct l_node{
+	worker_t data;
+	struct l_node *next;
+} l_node;
+
+/*
+ * A linked-list based list implementation with constant time add operation
+*/
+typedef struct list{
+	l_node *head;
+	int size;
+} list;
 
 /* Function Declarations: */
 
