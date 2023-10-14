@@ -353,52 +353,6 @@ int worker_yield() {
 	return 0;
 };
 
-// /* give CPU possession to other user-level worker threads voluntarily */
-// int worker_yield() {
-		
-// 	// - change worker thread's state from Running to Ready
-// 	// - save context of this thread to its thread control block
-// 	// - switch from thread context to scheduler context
-
-// 	// YOUR CODE HERE
-
-// 	//Checking if run queue exists. If no, no need to yield.
-// 	if(!rq) {
-// 		return -1;
-// 	}
-
-// 	//Checking if current thread exists (not the first call)
-// 	if (rq->size == 0) {
-// 		return -1;
-// 	}
-
-// 	//Save current thread's context
-// 	tcb *current_thread = (tcb *)dequeue(rq);
-// 	if (getcontext(current_thread->context) == -1) {
-// 		//handle error
-// 		perror("worker_yield: getcontext error");
-// 		exit(1);
-// 	}
-	
-// 	//adding a check if we are returning from getcontext()
-// 	if (*(current_thread->status) == RUNNING) {
-// 		//The thread is returning from setcontext.
-// 		return 0;
-// 	}
-
-
-// 	//Change the state of thread to READY.
-// 	*(current_thread->status) = READY;
-
-// 	//Enqueue the thread back to run queue, as it's still READY to run.
-// 	enqueue(rq, (void *)current_thread);
-
-// 	//switch from thread context to scheduler context here, comeback after scheduler done
-// 	//setcontext(scheduler);
-			
-// 	return 0;
-// };
-
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
 	// - add thread id to exit list
