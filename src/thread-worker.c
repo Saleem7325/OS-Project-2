@@ -408,9 +408,9 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// Need to get return value
 
 	// Assuming yield de-allocates all tcb memory nothing left to
-	if(curr_tcb == main_tcb && rq->size == 0){
-		free_all();
-	}
+	// if(curr_tcb == main_tcb && rq->size == 0){
+	// 	free_all();
+	// }
 	
 	return 0;
 };

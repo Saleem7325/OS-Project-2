@@ -5,7 +5,7 @@
 
 void *func(void *args){
 
-	for(int i = 0; i < 10; i++){
+	for(int i = 0; i < 1; i++){
 		printf("executing\n");
 	}
 
@@ -22,9 +22,16 @@ void *func(void *args){
 int main(int argc, char **argv) {
 
 	/* Implement HERE */
-	worker_t wt = 1;
-	worker_create(&wt, NULL, &func, NULL);
-	worker_join(wt, NULL);
+	worker_t wt[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+	
+	for(int i = 0; i < 9; i++){
+		worker_create(&wt[i], NULL, &func, NULL);
+	}
+
+	for(int i = 0; i < 9; i++){
+		worker_join(wt[i], NULL);
+	}
+
 
 	return 0;
 }
