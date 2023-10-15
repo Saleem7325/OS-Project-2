@@ -5,8 +5,9 @@
 
 void *func(void *args){
 
-	for(int i = 0; i < 1; i++){
+	for(int i = 0; i < 2; i++){
 		printf("executing\n");
+		worker_yield();
 	}
 
 	worker_exit(NULL);

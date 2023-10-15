@@ -242,6 +242,7 @@ void free_all(){
 	free_queue(rq);
 	free_list(exit_list);
 	free(main_tcb);
+	free(sch_ctx.uc_stack.ss_sp);
 
 	rq = NULL;
 	main_tcb = NULL;
@@ -307,7 +308,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 
 		// Check is current context was a result of setcontext()
 		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
-			printf("Made it");
+			printf("Made it\n");
 			return 0;
 		}else{
 			// Push TCB onto run queue
@@ -384,6 +385,7 @@ void worker_exit(void *value_ptr) {
 	free(curr_tcb->stack);
 	free(curr_tcb);
 	curr_tcb = NULL;
+
 	
 	//TODO: save value of arg, need to update list
 	// schedule();
@@ -408,9 +410,9 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// Need to get return value
 
 	// Assuming yield de-allocates all tcb memory nothing left to
-	// if(curr_tcb == main_tcb && rq->size == 0){
-	// 	free_all();
-	// }
+	if(curr_tcb == main_tcb && rq->size == 0 && exit_list->size == 0){
+		free_all();
+	}
 	
 	return 0;
 };
@@ -504,11 +506,7 @@ static void schedule() {
 		setitimer(ITIMER_PROF, &timer, NULL);
 		setcontext(&(curr_tcb->context));
 	}	
-	// swapcontext(&sch_ctx, &(curr_tcb->context));
-	// setcontext(&sch_ctx);
-
 		
-
 // - schedule policy
 #ifndef MLFQ
 	// Choose PSJF
