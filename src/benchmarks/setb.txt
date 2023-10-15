@@ -1,0 +1,7 @@
+b main
+b func
+b worker_create
+b worker_yield
+b schedule
+b worker_exit
+b worker_join

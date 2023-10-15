@@ -88,6 +88,11 @@ void free_queue(run_queue *q){
 		node *prev = tmp;
 		tmp = tmp->next;
 
+		tcb *cb = (tcb *)prev->data;
+		void *ctx_stk = cb->context.uc_stack.ss_sp;
+
+		// Free stack, tcb, and node
+		free(ctx_stk);
 		free(prev->data);
 		free(prev); 
 	}
@@ -169,29 +174,28 @@ void free_list(list *lst){
 static void schedule();
 
 /* Creates context for scheduler */
-// ucontext_t *scheduler_context(){
-// 	ucontext_t *sctx;
-// 	if(getcontext(sctx) < 0){
-// 		// For test purposes only
-// 		perror("worker_create: scheduler_context");
-// 		exit(1);
-// 	}
+void scheduler_context(){
+	if(getcontext(&sch_ctx) < 0){
+		// For test purposes only
+		perror("worker_create: scheduler_context");
+		exit(1);
+	}
 
-// 	void *stack = malloc(STACK_SIZE);
-// 	if(stack == NULL){
-// 		// For test purposes only
-// 		perror("worker_create: scheduler stack allocation");
-// 		exit(1);		
-// 	}	
+	void *stack = malloc(STACK_SIZE);
+	if(stack == NULL){
+		// For test purposes only
+		perror("worker_create: scheduler stack allocation");
+		exit(1);		
+	}	
 	
-// 	sctx->uc_link = NULL;
-// 	sctx->uc_stack.ss_sp = stack;
-// 	sctx->uc_stack.ss_size = STACK_SIZE;
-// 	sctx->uc_stack.ss_flags = 0;
+	sch_ctx.uc_link = NULL;
+	sch_ctx.uc_stack.ss_sp = stack;
+	sch_ctx.uc_stack.ss_size = STACK_SIZE;
+	sch_ctx.uc_stack.ss_flags = 0;
 
-// 	makecontext(sctx, &schedule, 0);
-// 	return sctx;
-// }
+	makecontext(&sch_ctx, &schedule, 0);
+	// return sctx;
+}
 
 void set_timer(){
 	timer.it_interval.tv_usec = 0;
@@ -217,7 +221,8 @@ void init(){
 	init_list(exit_list);
 
 	// Get scheduler context
-	// sch_ctx = scheduler_context();
+	// sch_ctx = *scheduler_context();
+	scheduler_context();
 }
 
 /*_____________ worker_t functions ____________*/
@@ -257,10 +262,6 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	}
 
 	// Set thread context attributes
-	// tctx.uc_link = NULL; 
-	// tctx.uc_stack.ss_sp = stack;
-	// tctx.uc_stack.ss_size = STACK_SIZE;
-	// tctx.uc_stack.ss_flags = 0;
 	control_block->context.uc_link = NULL; 
 	control_block->context.uc_stack.ss_sp = stack;
 	control_block->context.uc_stack.ss_size = STACK_SIZE;
@@ -289,12 +290,13 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 
 		// Check is current context was a result of setcontext()
 		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
+			printf("Made it");
 			return 0;
+		}else{
+			// Push TCB onto run queue
+			enqueue(rq, (void *)control_block);
+			enqueue(rq, (void *)main_tcb);
 		}
-
-		// Push TCB onto run queue
-		enqueue(rq, (void *)control_block);
-		enqueue(rq, (void *)main_tcb);
 	}else{
 		enqueue(rq, (void *)control_block);
 	}
@@ -305,8 +307,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	}	
 	
 	// Switch to scheduler context					
-	// setcontext(sch_ctx);
-	schedule();
+	setcontext(&sch_ctx);
+	// schedule();
 	
 	return 0;
 };
@@ -350,8 +352,8 @@ int worker_yield() {
 	curr_tcb = NULL;
 
 	//switch from thread context to scheduler context
-	// setcontext(sch_ctx);
-	schedule();
+	setcontext(&sch_ctx);
+	// schedule();
 			
 	return 0;
 };
@@ -367,7 +369,8 @@ void worker_exit(void *value_ptr) {
 	curr_tcb = NULL;
 	
 	//TODO: save value of arg, need to update list
-	schedule();
+	// schedule();
+	setcontext(&sch_ctx);
 };
 
 
@@ -444,35 +447,42 @@ static void schedule() {
 	// 		sched_mlfq();
 
 	// YOUR CODE HERE
-	if (getcontext(&sch_ctx) < 0){
-		perror("schedule: getcontext");
-		exit(1);
-	}
+	// if (getcontext(&sch_ctx) < 0){
+	// 	perror("schedule: getcontext");
+	// 	exit(1);
+	// }
+	while(1){
+		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
+			return;
+		}
 
-	if(!rq){
-		return;
-	}
+		if(!rq){
+			return;
+		}
 
-	if(curr_tcb == NULL && rq->size == 0){
-		return;
-	}
+		if(curr_tcb == NULL && rq->size == 0){
+			free_list(exit_list);
+			free_queue(rq);
+			return;
+		}
 
-	// If no thread has been interrupted by timer dequeue
-	// a thread and start executing its context
-	if(curr_tcb == NULL && rq->size > 0){
-		curr_tcb = (tcb *)dequeue(rq);			
-	}else if (rq->size > 0){
-		curr_tcb->status = READY;
-		enqueue(rq, curr_tcb);
-		
-		curr_tcb = (tcb *)dequeue(rq);
-		curr_tcb->status = SCHEDULED;
-	}
+		// If no thread has been interrupted by timer dequeue
+		// a thread and start executing its context
+		if(curr_tcb == NULL && rq->size > 0){
+			curr_tcb = (tcb *)dequeue(rq);			
+		}else if (rq->size > 0){
+			curr_tcb->status = READY;
+			enqueue(rq, curr_tcb);
+			
+			curr_tcb = (tcb *)dequeue(rq);
+			curr_tcb->status = SCHEDULED;
+		}
 
-	set_timer();	
-	setitimer(ITIMER_PROF, &timer, NULL);
-	// setcontext(&(curr_tcb->context));	
-	swapcontext(&sch_ctx, &(curr_tcb->context));
+		set_timer();	
+		setitimer(ITIMER_PROF, &timer, NULL);
+		setcontext(&(curr_tcb->context));
+	}	
+	// swapcontext(&sch_ctx, &(curr_tcb->context));
 	// setcontext(&sch_ctx);
 
 		

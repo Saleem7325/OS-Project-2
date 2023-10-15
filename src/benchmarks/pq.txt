@@ -1,0 +1,3 @@
+p rq->size
+p *(tcb *)rq->head->data
+p *(tcb *)rq->tail->data

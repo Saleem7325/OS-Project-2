@@ -7,7 +7,6 @@ void *func(void *args){
 
 	for(int i = 0; i < 10; i++){
 		printf("executing\n");
-		worker_yield();
 	}
 
 	worker_exit(NULL);
@@ -23,13 +22,9 @@ void *func(void *args){
 int main(int argc, char **argv) {
 
 	/* Implement HERE */
-	for(int i = 1; i < 5; i++){
-		worker_create((worker_t *)&i, NULL, &func, NULL);
-	}
-
-	for(int i = 1; i< 5; i++){
-		worker_join((worker_t)i, NULL);
-	}
+	worker_t wt = 1;
+	worker_create(&wt, NULL, &func, NULL);
+	worker_join(wt, NULL);
 
 	return 0;
 }
