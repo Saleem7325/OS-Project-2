@@ -243,8 +243,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	control_block->priority = 1;
 
 	// Set up context for thread	
-	ucontext_t tctx;
-	if(getcontext(&tctx) < 0){
+	// ucontext_t tctx;
+	if(getcontext(&(control_block->context)) < 0){
 		perror("worker_create: getcontext");
 		exit(1);
 	}
@@ -257,29 +257,32 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	}
 
 	// Set thread context attributes
-	tctx.uc_link = NULL; 
-	tctx.uc_stack.ss_sp = stack;
-	tctx.uc_stack.ss_size = STACK_SIZE;
-	tctx.uc_stack.ss_flags = 0;	
+	// tctx.uc_link = NULL; 
+	// tctx.uc_stack.ss_sp = stack;
+	// tctx.uc_stack.ss_size = STACK_SIZE;
+	// tctx.uc_stack.ss_flags = 0;
+	control_block->context.uc_link = NULL; 
+	control_block->context.uc_stack.ss_sp = stack;
+	control_block->context.uc_stack.ss_size = STACK_SIZE;
+	control_block->context.uc_stack.ss_flags = 0;		
 
 	// Make the context start running at the function passed as arg	
-	makecontext(&tctx, (void *)function, 1, arg);
-	control_block->context = tctx;
+	makecontext(&(control_block->context), (void *)function, 1, arg);
+	// control_block->context = tctx;
 
 	// If run queue does not exist(in the case of first call),
 	// create the run queue
 	if(!rq){
 		init();
-		ucontext_t mctx;
+		// ucontext_t mctx;
 
 		// Create a pointer to TCB
 		tcb *main_tcb = malloc(sizeof(tcb));
 		main_tcb->thread_id = 0;
 		main_tcb->status = READY;	
 		main_tcb->priority = 1;
-		main_tcb->context = mctx;
 
-		if(getcontext(&mctx) < 0){
+		if(getcontext(&(main_tcb->context)) < 0){
 			perror("worker_create: main getcontext");
 			exit(1);
 		}
@@ -467,9 +470,10 @@ static void schedule() {
 	}
 
 	set_timer();	
-	setitimer(ITIMER_PROF, &timer, NULL);	
+	setitimer(ITIMER_PROF, &timer, NULL);
+	// setcontext(&(curr_tcb->context));	
 	swapcontext(&sch_ctx, &(curr_tcb->context));
-	setcontext(&sch_ctx);
+	// setcontext(&sch_ctx);
 
 		
 
