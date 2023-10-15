@@ -19,6 +19,7 @@ list *exit_list = NULL;
 
 // Currently running thread's TCB
 tcb *curr_tcb = NULL;
+tcb *main_tcb = NULL;
 
 // Scheduler context
 ucontext_t sch_ctx;
@@ -89,8 +90,12 @@ void free_queue(run_queue *q){
 		tmp = tmp->next;
 
 		tcb *cb = (tcb *)prev->data;
-		void *ctx_stk = cb->context.uc_stack.ss_sp;
+		if(cb == main_tcb){
+			free(prev);
+			continue;
+		}
 
+		void *ctx_stk = cb->context.uc_stack.ss_sp;
 		// Free stack, tcb, and node
 		free(ctx_stk);
 		free(prev->data);
@@ -223,6 +228,25 @@ void init(){
 	// Get scheduler context
 	// sch_ctx = *scheduler_context();
 	scheduler_context();
+
+	// Create a pointer to main TCB
+	main_tcb = malloc(sizeof(tcb));
+	main_tcb->thread_id = 0;
+	main_tcb->status = READY;	
+	main_tcb->priority = 1;
+}
+
+/*_____________ Helper functions ____________*/
+
+void free_all(){
+	free_queue(rq);
+	free_list(exit_list);
+	free(main_tcb);
+
+	rq = NULL;
+	main_tcb = NULL;
+	exit_list = NULL;
+	curr_tcb = NULL;
 }
 
 /*_____________ worker_t functions ____________*/
@@ -275,13 +299,6 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	// create the run queue
 	if(!rq){
 		init();
-		// ucontext_t mctx;
-
-		// Create a pointer to TCB
-		tcb *main_tcb = malloc(sizeof(tcb));
-		main_tcb->thread_id = 0;
-		main_tcb->status = READY;	
-		main_tcb->priority = 1;
 
 		if(getcontext(&(main_tcb->context)) < 0){
 			perror("worker_create: main getcontext");
@@ -391,6 +408,10 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// Need to get return value
 
 	// Assuming yield de-allocates all tcb memory nothing left to
+	if(curr_tcb == main_tcb && rq->size == 0){
+		free_all();
+	}
+	
 	return 0;
 };
 

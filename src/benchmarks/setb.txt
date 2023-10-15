@@ -7,3 +7,4 @@ b worker_exit
 b worker_join
 b enqueue
 b dequeue
+b thread-worker.c:305
