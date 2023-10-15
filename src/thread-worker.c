@@ -469,7 +469,8 @@ static void schedule() {
 		// If no thread has been interrupted by timer dequeue
 		// a thread and start executing its context
 		if(curr_tcb == NULL && rq->size > 0){
-			curr_tcb = (tcb *)dequeue(rq);			
+			curr_tcb = (tcb *)dequeue(rq);	
+			curr_tcb->status = SCHEDULED;		
 		}else if (rq->size > 0){
 			curr_tcb->status = READY;
 			enqueue(rq, curr_tcb);

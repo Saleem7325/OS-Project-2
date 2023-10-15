@@ -5,3 +5,5 @@ b worker_yield
 b schedule
 b worker_exit
 b worker_join
+b enqueue
+b dequeue
