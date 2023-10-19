@@ -356,6 +356,7 @@ void init(){
 	main_tcb->thread_id = 0;
 	main_tcb->status = READY;	
 	main_tcb->priority = 1;
+	main_tcb->elapsed = 0;
 }
 
 /*_____________ Helper functions ____________*/
@@ -393,6 +394,9 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 
 	// Set thread priority, using 1 as default for testing
 	control_block->priority = 1;
+
+	control_block->elapsed = 0;
+
 
 	// Set up context for thread	
 	// ucontext_t tctx;
@@ -503,6 +507,8 @@ int worker_yield() {
 void worker_exit(void *value_ptr) {
 	// - add thread id to exit list
 	// disable_timer();
+	printf("Finished thread %d, elapsed: %d\n", (int)curr_tcb->thread_id, curr_tcb->elapsed);
+
 	add(exit_list, curr_tcb->thread_id);
 
 	// - de-allocate any dynamic memory created when starting this thread
@@ -616,7 +622,7 @@ void sig_handle(int sig_num){
 		setcontext(&sch_ctx);
 	}
 
-	// TODO: increment elapsed to indicate curr_tcb ran for another quantum 
+	curr_tcb->elapsed++;
 	curr_tcb->status = READY;
 	if(getcontext(&(curr_tcb->context)) < 0){
 		perror("worker_yield: getcontext error");
@@ -628,7 +634,7 @@ void sig_handle(int sig_num){
 		return;
 	}
 
-	// printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
+	printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
 	enqueue(rq, curr_tcb);
 	curr_tcb = NULL;
 	setcontext(&sch_ctx);
@@ -653,9 +659,9 @@ static void schedule() {
 	// 	exit(1);
 	// }
 	while(1){
-		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
-			return;
-		}
+		// if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
+		// 	return;
+		// }
 
 		if(!rq){
 			return;

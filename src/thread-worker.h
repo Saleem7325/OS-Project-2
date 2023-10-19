@@ -52,7 +52,8 @@ typedef struct TCB {
 	int status;
 	ucontext_t context;
 	void *stack;
-	int priority;	
+	int priority;
+	int elapsed;	
 } tcb; 
 
 /* mutex struct definition */
