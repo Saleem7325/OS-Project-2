@@ -58,12 +58,17 @@ typedef struct TCB {
 /* mutex struct definition */
 typedef struct worker_mutex_t {
 	/* add something here */
-
 	// YOUR CODE HERE
+
+	int locked;
+	tcb *holder;
+
 } worker_mutex_t;
 
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
+
+/*_________________________________ run_queue ___________________________________*/
 
 /* Node in linked list based queue */
 typedef struct node{
@@ -80,6 +85,22 @@ typedef struct run_queue{
 	node *tail;
 	int size;
 } run_queue;
+
+/*_________________________________ blocked_queue ___________________________________*/
+
+typedef struct b_node{
+	tcb *data;
+	worker_mutex_t *mutex;
+	struct b_node *next;
+} b_node;
+
+typedef struct blocked_queue{
+	b_node *head;
+	b_node *tail;
+	int size;
+} blocked_queue;
+
+/*_________________________________ list ___________________________________*/
 
 /* Node in list */
 typedef struct l_node{

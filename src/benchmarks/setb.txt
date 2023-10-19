@@ -9,3 +9,4 @@ b enqueue
 b dequeue
 b free_all
 b thread-worker.c:310
+b sig_handle

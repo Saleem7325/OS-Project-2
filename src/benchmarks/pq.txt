@@ -1,3 +1,4 @@
 p rq->size
 p *(tcb *)rq->head->data
 p *(tcb *)rq->tail->data
+call print_queue(rq)

@@ -14,11 +14,20 @@ double avg_resp_time=0;
 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
+
+// Run queue
 run_queue *rq = NULL;
+
+// Blocked threads
+blocked_queue *bq = NULL;
+
+// List of completed threads
 list *exit_list = NULL;
 
 // Currently running thread's TCB
 tcb *curr_tcb = NULL;
+
+// Main thread's TCB
 tcb *main_tcb = NULL;
 
 // Scheduler context
@@ -105,7 +114,106 @@ void free_queue(run_queue *q){
 	free(q);
 }
 
-/*_______________ List functions _____________*/
+void print_queue(run_queue *rq){
+	if(!rq){
+		return;
+	}
+
+	if(rq->head == rq->tail){
+		printf("Size: %d\n", rq->size);
+
+		if(!rq->head){
+			return;
+		}
+
+		tcb * tmp = (tcb *)rq->head->data;
+		int tmp_id = (int)tmp->thread_id;
+		printf("Thread_id: %d\n", tmp_id);
+		return;
+	}
+
+	node * tmp = rq->head;
+	while(!tmp){
+		tcb *data = (tcb *)rq->head->data;
+		int tmp_id = (int)data->thread_id;
+		printf("Thread_id: %d\n", tmp_id);
+		tmp = tmp->next;
+	}
+
+}
+
+/*_______________________ blocked_queue functions ___________________________*/
+
+void init_b_queue(blocked_queue *q){
+	q->head, q->tail = NULL;
+	q->size = 0;
+}
+
+void b_enqueue(blocked_queue *q, tcb  *data, worker_mutex_t *mutex){
+	if(q->tail == NULL){
+		q->tail = malloc(sizeof(b_node));
+		q->tail->data = data;
+		q->tail->mutex = mutex; 
+		q->tail->next = NULL;
+		q->head = q->tail;
+	}else{
+		b_node *tmp = malloc(sizeof(b_node));
+		tmp->data = data;
+		tmp->mutex = mutex; 
+		tmp->next = NULL;
+		q->tail->next = tmp;
+		q->tail = tmp;
+	}
+ 
+	q->size++;
+}
+
+void *b_dequeue(blocked_queue *q, worker_mutex_t *mutex){
+	if(q->head == NULL){
+		return NULL;
+	}
+	
+	if(q->head->mutex == mutex){
+		void *data = q->head->data;
+
+		if(q->head == q->tail){
+			free(q->head);
+			q->head = NULL;
+			q->tail = NULL; 
+
+		}else{
+			b_node *tmp = q->head;
+			q->head = q->head->next;
+			free(tmp);
+		}
+
+		q->size--;
+
+		return data;    
+	}
+	
+	b_node *tmp = q->head;
+	b_node *next = tmp->next;
+	while(tmp != NULL){
+		if(next->mutex == mutex){
+			if(next == q->tail){
+				void *data = next->data;
+				q->tail == tmp;
+				free(next);
+				return data;
+			}else{
+				void *data = next->data;
+				tmp->next = next->next;
+				free(next);
+				return data;
+			}
+		}
+	}
+
+	return NULL;   
+}
+
+/*______________________________ list functions ________________________________*/
 
 void init_list(list *lst){
 	lst->head = NULL;
@@ -176,6 +284,8 @@ void free_list(list *lst){
 
 /*_____________ Set up functions ____________*/
 
+void sig_handle(int sig_num);
+
 static void schedule();
 
 /* Creates context for scheduler */
@@ -209,17 +319,29 @@ void set_timer(){
 	timer.it_value.tv_sec = 0;
 }
 
+void disable_timer(){
+	timer.it_interval.tv_usec = 0;
+	timer.it_interval.tv_sec = 0;
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0;
+}
+
 void init(){
 	set_timer();
 
 	// Create signal handler
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = &schedule;
+	// sa.sa_handler = &schedule;
+	sa.sa_handler = &sig_handle;
 	sigaction(SIGPROF, &sa, NULL);
 
 	// create run queue
 	rq = (run_queue *)malloc(sizeof(run_queue));	
 	init_queue(rq);
+
+	// create blocked queue
+	bq = (blocked_queue *)malloc(sizeof(blocked_queue));	
+	init_b_queue(bq);
 
 	// create exit list
 	exit_list =  (list *)malloc(sizeof(list));
@@ -308,7 +430,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 
 		// Check is current context was a result of setcontext()
 		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
-			printf("Made it\n");
+			// printf("Made it\n");
 			return 0;
 		}else{
 			// Push TCB onto run queue
@@ -353,6 +475,7 @@ int worker_yield() {
 		return -1;
 	}
 
+	// disable_timer();
 	// Update status of yeilding thread
 	curr_tcb->status = READY;
 	if(getcontext(&(curr_tcb->context)) < 0){
@@ -379,6 +502,7 @@ int worker_yield() {
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
 	// - add thread id to exit list
+	// disable_timer();
 	add(exit_list, curr_tcb->thread_id);
 
 	// - de-allocate any dynamic memory created when starting this thread
@@ -410,7 +534,7 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// Need to get return value
 
 	// Assuming yield de-allocates all tcb memory nothing left to
-	if(curr_tcb == main_tcb && rq->size == 0 && exit_list->size == 0){
+	if(curr_tcb == main_tcb && rq->size == 0 && exit_list->size == 0 && bq->size == 0){
 		free_all();
 	}
 	
@@ -418,9 +542,10 @@ int worker_join(worker_t thread, void **value_ptr) {
 };
 
 /* initialize the mutex lock */
-int worker_mutex_init(worker_mutex_t *mutex, 
-                          const pthread_mutexattr_t *mutexattr) {
+int worker_mutex_init(worker_mutex_t *mutex, const pthread_mutexattr_t *mutexattr) {
 	//- initialize data structures for this mutex
+	mutex->locked = 0;
+	mutex->holder = NULL;
 
 	// YOUR CODE HERE
 	return 0;
@@ -429,13 +554,28 @@ int worker_mutex_init(worker_mutex_t *mutex,
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
 
-        // - use the built-in test-and-set atomic function to test the mutex
-        // - if the mutex is acquired successfully, enter the critical section
-        // - if acquiring mutex fails, push current thread into block list and
-        // context switch to the scheduler thread
+	// - use the built-in test-and-set atomic function to test the mutex
+	// - if the mutex is acquired successfully, enter the critical section
+	// - if acquiring mutex fails, push current thread into block list and
+	// context switch to the scheduler thread
 
-        // YOUR CODE HERE
-        return 0;
+	// YOUR CODE HERE
+	if(getcontext(&(curr_tcb->context)) < 0){
+		perror("worker_mutex_lock: getcontext");
+		exit(1);
+	}
+
+	while(mutex->locked){
+		curr_tcb->status = BLOCKED;
+		b_enqueue(bq, curr_tcb, mutex);
+		curr_tcb = NULL;
+
+		setcontext(&sch_ctx);
+	}
+	
+	mutex->locked = 1;
+	mutex->holder = curr_tcb;
+	return 0;
 };
 
 /* release the mutex lock */
@@ -445,6 +585,16 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// so that they could compete for mutex later.
 
 	// YOUR CODE HERE
+	mutex->locked = 0;
+	mutex->holder = NULL;
+
+	tcb *thread = b_dequeue(bq, mutex);
+	while(thread != NULL){
+		thread->status = READY;
+		enqueue(rq, (void *)thread);
+		tcb *thread = b_dequeue(bq, mutex);
+	}
+
 	return 0;
 };
 
@@ -452,9 +602,37 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex) {
 	// - de-allocate dynamic memory created in worker_mutex_init
-
+	mutex->locked = 0;
+	mutex->holder = NULL;
 	return 0;
 };
+
+void sig_handle(int sig_num){
+	if(sig_num != 27){
+		return;
+	}
+
+	if(!curr_tcb){
+		setcontext(&sch_ctx);
+	}
+
+	// TODO: increment elapsed to indicate curr_tcb ran for another quantum 
+	curr_tcb->status = READY;
+	if(getcontext(&(curr_tcb->context)) < 0){
+		perror("worker_yield: getcontext error");
+		exit(1);
+	}
+
+	// If curr_tcb is set again using setcontext
+	if(curr_tcb->status == SCHEDULED){
+		return;
+	}
+
+	// printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
+	enqueue(rq, curr_tcb);
+	curr_tcb = NULL;
+	setcontext(&sch_ctx);
+}
 
 /* scheduler currently implements cfs and does not call MLFQ/PSJF */
 static void schedule() {
@@ -502,6 +680,7 @@ static void schedule() {
 			curr_tcb->status = SCHEDULED;
 		}
 
+		// printf("Running Thread %d\n", (int)curr_tcb->thread_id);
 		set_timer();	
 		setitimer(ITIMER_PROF, &timer, NULL);
 		setcontext(&(curr_tcb->context));
