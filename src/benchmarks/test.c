@@ -12,7 +12,8 @@ int inc2 = 0;
 
 void *func(void *args){
 
-	for(int i = 0; i < 200000; i++){
+	
+	for(int i = 0; i < 10000000; i++){
 		worker_mutex_lock(&mutex);
 		inc++;
 		worker_mutex_unlock(&mutex);
@@ -23,22 +24,32 @@ void *func(void *args){
 		inc2++;
 		worker_mutex_unlock(&mutex2);
 	}
-
-	printf("Thread %d Finished\n", *(int *)args);
+	
+	// printf("Thread %d Finished\n", *(int *)args);
 	worker_exit(NULL);
 }
 
-void func1(void *args){
+void *b_func(void *args){
+	for(int i = 0; i < 1000000000; i++){
 
-	for(int i = 0; i < 100000000; i++){
+	}
 
+	worker_exit(NULL);
+}
+
+void *func1(void *args){
+	worker_t wt[2];
+	for(int i = 0; i < 2; i++){
+		worker_create(&wt[i], NULL, &b_func, &wt[i]);
+	}
+
+	for(int i = 0; i < 2; i++){
+		worker_join(wt[i], NULL);
 	}
 
 	// printf("Thread %d Finished\n", *(int *)args);
 	worker_exit(NULL);
 }
-
-
 
 /* A scratch program template on which to call and
  * test thread-worker library functions as you implement
@@ -50,36 +61,38 @@ void func1(void *args){
 int main(int argc, char **argv) {
 
 	/* Implement HERE */
-	worker_t wt[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
-			11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
+	// worker_t wt[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
+	// 		11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
 
+	worker_t wt[20];
+
+	// for(int i = 0; i < 1; i++){
+	// 	worker_create(&wt[i], NULL, &func1, &wt[i]);
+	// }
+
+	// for(int i = 0; i < 1; i++){
+	// 	worker_join(wt[i], NULL);
+	// }
+
+	// MUTEX tests
+	worker_mutex_init(&mutex, NULL);
+	worker_mutex_init(&mutex1, NULL);
+	worker_mutex_init(&mutex2, NULL);
+	
 	for(int i = 0; i < 20; i++){
-		worker_create(&wt[i], NULL, &func1, &wt[i]);
+		worker_create(&wt[i], NULL, &func, &wt[i]);
 	}
 
 	for(int i = 0; i < 20; i++){
 		worker_join(wt[i], NULL);
 	}
 
-	// MUTEX tests
-	// worker_mutex_init(&mutex, NULL);
-	// worker_mutex_init(&mutex1, NULL);
-	// worker_mutex_init(&mutex2, NULL);
-	
-	// for(int i = 0; i < 20; i++){
-	// 	worker_create(&wt[i], NULL, &func, &wt[i]);
-	// }
-
-	// for(int i = 0; i < 20; i++){
-	// 	worker_join(wt[i], NULL);
-	// }
-
-	// worker_mutex_destroy(&mutex);
-	// worker_mutex_destroy(&mutex1);
-	// worker_mutex_destroy(&mutex2);
-	// printf("inc: %d\n", inc);
-	// printf("inc1: %d\n", inc1);
-	// printf("inc2: %d\n", inc2);
+	worker_mutex_destroy(&mutex);
+	worker_mutex_destroy(&mutex1);
+	worker_mutex_destroy(&mutex2);
+	printf("inc: %d\n", inc);
+	printf("inc1: %d\n", inc1);
+	printf("inc2: %d\n", inc2);
 
 	return 0;
 }

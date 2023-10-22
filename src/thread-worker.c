@@ -39,6 +39,9 @@ struct itimerval timer;
 // sigaction for registering signal handler
 struct sigaction sa;
 
+// Thread_IDs
+int id = 1;
+
 /*_____________ run_queue functions ____________*/
 
 void init_queue(run_queue *q){
@@ -191,26 +194,75 @@ void *b_dequeue(blocked_queue *q, worker_mutex_t *mutex){
 
 		return data;    
 	}
-	
+
 	b_node *tmp = q->head;
 	b_node *next = tmp->next;
-	while(tmp != NULL){
+	while(next != NULL){
 		if(next->mutex == mutex){
+			void *data = next->data;
+
 			if(next == q->tail){
-				void *data = next->data;
-				q->tail == tmp;
-				free(next);
-				return data;
+				q->tail = tmp;
 			}else{
-				void *data = next->data;
 				tmp->next = next->next;
-				free(next);
-				return data;
 			}
+
+			free(next);
+			return data;
 		}
+
+		tmp = next;
+		next = next->next;
 	}
+	
+	// b_node *tmp = q->head;
+	// b_node *next = tmp->next;
+	// while(tmp != NULL){
+	// 	if(!next){
+	// 		break;
+	// 	}
+		
+	// 	if(next->mutex == mutex){
+	// 		if(next == q->tail){
+	// 			void *data = next->data;
+	// 			q->tail = tmp;
+	// 			free(next);
+	// 			return data;
+	// 		}else{
+	// 			void *data = next->data;
+	// 			tmp->next = next->next;
+	// 			free(next);
+	// 			return data;
+	// 		}
+	// 	}
+
+	// 	tmp = next;
+	// 	next = next->next;
+	// }
 
 	return NULL;   
+}
+
+void free_b_queue(blocked_queue *q){
+	b_node *tmp = q->head;
+	while(tmp != NULL){
+		b_node *prev = tmp;
+		tmp = tmp->next;
+
+		tcb *cb = (tcb *)prev->data;
+		if(cb == main_tcb){
+			free(prev);
+			continue;
+		}
+
+		void *ctx_stk = cb->context.uc_stack.ss_sp;
+		// Free stack, tcb, and node
+		free(ctx_stk);
+		free(prev->data);
+		free(prev); 
+	}
+
+	free(q);
 }
 
 /*______________________________ list functions ________________________________*/
@@ -324,6 +376,7 @@ void disable_timer(){
 	timer.it_interval.tv_sec = 0;
 	timer.it_value.tv_usec = 0;
 	timer.it_value.tv_sec = 0;
+	setitimer(ITIMER_PROF, &timer, NULL);
 }
 
 void init(){
@@ -354,6 +407,7 @@ void init(){
 	// Create a pointer to main TCB
 	main_tcb = malloc(sizeof(tcb));
 	main_tcb->thread_id = 0;
+	// main_tcb->thread_id = id++;
 	main_tcb->status = READY;	
 	main_tcb->priority = 1;
 	main_tcb->elapsed = 0;
@@ -363,6 +417,7 @@ void init(){
 
 void free_all(){
 	free_queue(rq);
+	free(bq);
 	free_list(exit_list);
 	free(main_tcb);
 	free(sch_ctx.uc_stack.ss_sp);
@@ -371,6 +426,7 @@ void free_all(){
 	main_tcb = NULL;
 	exit_list = NULL;
 	curr_tcb = NULL;
+	id = 1;
 }
 
 /*_____________ worker_t functions ____________*/
@@ -387,7 +443,10 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	tcb *control_block = malloc(sizeof(tcb));
 
 	// Set thread ID
+	// control_block->thread_id = *thread;
+	*thread = id++;
 	control_block->thread_id = *thread;	
+
 
 	// Set thread status 
 	control_block->status = READY;	
@@ -507,7 +566,7 @@ int worker_yield() {
 void worker_exit(void *value_ptr) {
 	// - add thread id to exit list
 	// disable_timer();
-	printf("Finished thread %d, elapsed: %d\n", (int)curr_tcb->thread_id, curr_tcb->elapsed);
+	printf("Finished thread %d,	\telapsed: %d\n", (int)curr_tcb->thread_id, curr_tcb->elapsed);
 
 	add(exit_list, curr_tcb->thread_id);
 
@@ -559,6 +618,9 @@ int worker_mutex_init(worker_mutex_t *mutex, const pthread_mutexattr_t *mutexatt
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
+	if(mutex->holder == curr_tcb){
+		return 0;
+	}
 
 	// - use the built-in test-and-set atomic function to test the mutex
 	// - if the mutex is acquired successfully, enter the critical section
@@ -571,7 +633,15 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 		exit(1);
 	}
 
-	while(mutex->locked){
+	// while(mutex->locked){
+	// 	curr_tcb->status = BLOCKED;
+	// 	b_enqueue(bq, curr_tcb, mutex);
+	// 	curr_tcb = NULL;
+
+	// 	setcontext(&sch_ctx);
+	// }
+
+	while(__sync_lock_test_and_set(&mutex->locked, 1) != 0){
 		curr_tcb->status = BLOCKED;
 		b_enqueue(bq, curr_tcb, mutex);
 		curr_tcb = NULL;
@@ -579,8 +649,12 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 		setcontext(&sch_ctx);
 	}
 	
-	mutex->locked = 1;
+	// mutex->locked = 1;
 	mutex->holder = curr_tcb;
+	// __sync_lock_test_and_set(&mutex->locked, 1);
+	// __sync_lock_test_and_set(&mutex->holder, curr_tcb);
+	
+
 	return 0;
 };
 
@@ -593,13 +667,20 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// YOUR CODE HERE
 	mutex->locked = 0;
 	mutex->holder = NULL;
+	// __sync_lock_test_and_set(&mutex->locked, 1);
+	// __sync_lock_test_and_set(&mutex->holder, NULL);
 
 	tcb *thread = b_dequeue(bq, mutex);
-	while(thread != NULL){
+	if(thread != NULL){
 		thread->status = READY;
 		enqueue(rq, (void *)thread);
-		tcb *thread = b_dequeue(bq, mutex);
+		// tcb *thread = b_dequeue(bq, mutex);
 	}
+	// while(thread != NULL){
+	// 	thread->status = READY;
+	// 	enqueue(rq, (void *)thread);
+	// 	tcb *thread = b_dequeue(bq, mutex);
+	// }
 
 	return 0;
 };
@@ -615,6 +696,7 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 
 void sig_handle(int sig_num){
 	if(sig_num != 27){
+		printf("Signal num not 27\n");
 		return;
 	}
 
@@ -664,12 +746,12 @@ static void schedule() {
 		// }
 
 		if(!rq){
+			free_all();
 			return;
 		}
 
 		if(curr_tcb == NULL && rq->size == 0){
-			free_list(exit_list);
-			free_queue(rq);
+			free_all();
 			return;
 		}
 
