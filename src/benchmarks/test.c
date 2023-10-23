@@ -12,8 +12,7 @@ int inc2 = 0;
 
 void *func(void *args){
 
-	
-	for(int i = 0; i < 10000000; i++){
+	for(int i = 0; i < 1000000; i++){
 		worker_mutex_lock(&mutex);
 		inc++;
 		worker_mutex_unlock(&mutex);
@@ -25,7 +24,6 @@ void *func(void *args){
 		worker_mutex_unlock(&mutex2);
 	}
 	
-	// printf("Thread %d Finished\n", *(int *)args);
 	worker_exit(NULL);
 }
 
@@ -61,20 +59,27 @@ void *func1(void *args){
 int main(int argc, char **argv) {
 
 	/* Implement HERE */
-	// worker_t wt[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
-	// 		11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
 
 	worker_t wt[20];
 
-	// for(int i = 0; i < 1; i++){
-	// 	worker_create(&wt[i], NULL, &func1, &wt[i]);
+	// for(int i = 0; i < 10; i++){
+	// 	worker_create(&wt[i], NULL, &b_func, &wt[i]);
 	// }
 
-	// for(int i = 0; i < 1; i++){
+	// for(int i = 0; i < 10; i++){
 	// 	worker_join(wt[i], NULL);
 	// }
 
-	// MUTEX tests
+	// for(int i = 0; i < 3; i++){
+	// 	worker_create(&wt[i], NULL, &func1, &wt[i]);
+	// }
+
+	// for(int i = 0; i < 3; i++){
+	// 	worker_join(wt[i], NULL);
+	// }
+
+	// MUTEX tests (main function)
+	// printf("%d\n", SIGSTKSZ);
 	worker_mutex_init(&mutex, NULL);
 	worker_mutex_init(&mutex1, NULL);
 	worker_mutex_init(&mutex2, NULL);
