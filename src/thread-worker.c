@@ -19,7 +19,8 @@ double avg_resp_time=0;
 run_queue *rq = NULL;
 
 // Blocked threads
-blocked_queue *bq = NULL;
+mutex_queue *mq = NULL;
+join_queue *jq = NULL;
 
 // List of completed threads
 list *exit_list = NULL;
@@ -91,7 +92,70 @@ void *dequeue(run_queue *q){
 
 /* TODO: Dequeue the node with minimum counter/elapsed value */
 void *psjf_dequeue(run_queue *q){
-		
+		if(!rq){
+			return NULL;
+		}
+
+		node *tmp = q->head;
+		tcb *tmp_tcb = (tcb *)tmp->data;
+		node *next = tmp->next;
+
+		tcb *min_tcb = (tcb *)tmp->data;
+		node *min_node = tmp;
+		node *min_prev = NULL;
+		node *min_next = next;
+
+		if(tmp_tcb->elapsed == 0 || tmp == q->tail){
+			if(tmp == q->tail){
+				q->head, q->tail = NULL;
+			}else{
+				q->head = next;
+			}
+
+			q->size--;
+			free(tmp);
+			return tmp_tcb;
+		}
+
+		while(next != NULL){
+			tcb * next_tcb = (tcb *)next->data;
+			if(next_tcb->elapsed == 0){
+				min_tcb = next_tcb;
+
+				if(next == q->tail){
+					tmp->next = NULL;
+					q->tail = tmp;
+				}else{
+					tmp->next = next->next;
+				}
+
+				free(next);
+				return min_tcb;
+			}else if(next_tcb->elapsed < min_tcb->elapsed){
+				min_prev = tmp;
+				min_next = next->next;
+				min_node = next;
+				min_tcb = next_tcb;
+			}
+
+			tmp = next;
+			next = next->next;
+		}
+
+		if(min_node == q->head){
+			q->head = min_next;
+		}else if(min_node == q->tail){
+			q->tail = min_prev;
+			q->tail->next = NULL;
+		}else{
+			min_prev->next = min_next;
+		}
+
+		q->size--;
+		free(min_node);
+		return min_tcb;
+
+
 }
 
 /* TODO: Update function to free every dynamic mem-reference in TCB */
@@ -145,22 +209,22 @@ void print_queue(run_queue *rq){
 
 }
 
-/*_______________________ blocked_queue functions ___________________________*/
+/*_______________________ mutex_queue functions ___________________________*/
 
-void init_b_queue(blocked_queue *q){
+void init_mutex_queue(mutex_queue *q){
 	q->head, q->tail = NULL;
 	q->size = 0;
 }
 
-void b_enqueue(blocked_queue *q, tcb  *data, worker_mutex_t *mutex){
+void mutex_enqueue(mutex_queue *q, tcb  *data, worker_mutex_t *mutex){
 	if(q->tail == NULL){
-		q->tail = malloc(sizeof(b_node));
+		q->tail = malloc(sizeof(m_node));
 		q->tail->data = data;
 		q->tail->mutex = mutex; 
 		q->tail->next = NULL;
 		q->head = q->tail;
 	}else{
-		b_node *tmp = malloc(sizeof(b_node));
+		m_node *tmp = malloc(sizeof(m_node));
 		tmp->data = data;
 		tmp->mutex = mutex; 
 		tmp->next = NULL;
@@ -169,9 +233,10 @@ void b_enqueue(blocked_queue *q, tcb  *data, worker_mutex_t *mutex){
 	}
  
 	q->size++;
+	// printf("Enqueue: %d\n", q->size);
 }
 
-void *b_dequeue(blocked_queue *q, worker_mutex_t *mutex){
+void *mutex_dequeue(mutex_queue *q, worker_mutex_t *mutex){
 	if(q->head == NULL){
 		return NULL;
 	}
@@ -185,7 +250,7 @@ void *b_dequeue(blocked_queue *q, worker_mutex_t *mutex){
 			q->tail = NULL; 
 
 		}else{
-			b_node *tmp = q->head;
+			m_node *tmp = q->head;
 			q->head = q->head->next;
 			free(tmp);
 		}
@@ -195,8 +260,8 @@ void *b_dequeue(blocked_queue *q, worker_mutex_t *mutex){
 		return data;    
 	}
 
-	b_node *tmp = q->head;
-	b_node *next = tmp->next;
+	m_node *tmp = q->head;
+	m_node *next = tmp->next;
 	while(next != NULL){
 		if(next->mutex == mutex){
 			void *data = next->data;
@@ -214,39 +279,108 @@ void *b_dequeue(blocked_queue *q, worker_mutex_t *mutex){
 		tmp = next;
 		next = next->next;
 	}
-	
-	// b_node *tmp = q->head;
-	// b_node *next = tmp->next;
-	// while(tmp != NULL){
-	// 	if(!next){
-	// 		break;
-	// 	}
-		
-	// 	if(next->mutex == mutex){
-	// 		if(next == q->tail){
-	// 			void *data = next->data;
-	// 			q->tail = tmp;
-	// 			free(next);
-	// 			return data;
-	// 		}else{
-	// 			void *data = next->data;
-	// 			tmp->next = next->next;
-	// 			free(next);
-	// 			return data;
-	// 		}
-	// 	}
-
-	// 	tmp = next;
-	// 	next = next->next;
-	// }
 
 	return NULL;   
 }
 
-void free_b_queue(blocked_queue *q){
-	b_node *tmp = q->head;
+void free_mutex_queue(mutex_queue *q){
+	m_node *tmp = q->head;
 	while(tmp != NULL){
-		b_node *prev = tmp;
+		m_node *prev = tmp;
+		tmp = tmp->next;
+
+		tcb *cb = (tcb *)prev->data;
+		if(cb == main_tcb){
+			free(prev);
+			continue;
+		}
+
+		void *ctx_stk = cb->context.uc_stack.ss_sp;
+		// Free stack, tcb, and node
+		free(ctx_stk);
+		free(prev->data);
+		free(prev); 
+	}
+
+	free(q);
+}
+
+/*_______________________ join_queue functions ___________________________*/
+
+void init_join_queue(join_queue *q){
+	q->head, q->tail = NULL;
+	q->size = 0;
+}
+
+void join_enqueue(join_queue *q, tcb  *data, worker_t child){
+	if(q->tail == NULL){
+		q->tail = malloc(sizeof(j_node));
+		q->tail->data = data;
+		q->tail->child = child; 
+		q->tail->next = NULL;
+		q->head = q->tail;
+	}else{
+		j_node *tmp = malloc(sizeof(j_node));
+		tmp->data = data;
+		tmp->child = child; 
+		tmp->next = NULL;
+		q->tail->next = tmp;
+		q->tail = tmp;
+	}
+ 
+	q->size++;
+}
+
+void *join_dequeue(join_queue *q, worker_t child){
+	if(q->head == NULL){
+		return NULL;
+	}
+	
+	if(q->head->child == child){
+		void *data = q->head->data;
+
+		if(q->head == q->tail){
+			free(q->head);
+			q->head = NULL;
+			q->tail = NULL; 
+
+		}else{
+			j_node *tmp = q->head;
+			q->head = q->head->next;
+			free(tmp);
+		}
+
+		q->size--;
+		return data;    
+	}
+
+	j_node *tmp = q->head;
+	j_node *next = tmp->next;
+	while(next != NULL){
+		if(next->child == child){
+			void *data = next->data;
+
+			if(next == q->tail){
+				q->tail = tmp;
+			}else{
+				tmp->next = next->next;
+			}
+
+			free(next);
+			return data;
+		}
+
+		tmp = next;
+		next = next->next;
+	}
+
+	return NULL;  
+}
+
+void free_join_queue(join_queue *q){
+	j_node *tmp = q->head;
+	while(tmp != NULL){
+		j_node *prev = tmp;
 		tmp = tmp->next;
 
 		tcb *cb = (tcb *)prev->data;
@@ -392,22 +526,24 @@ void init(){
 	rq = (run_queue *)malloc(sizeof(run_queue));	
 	init_queue(rq);
 
-	// create blocked queue
-	bq = (blocked_queue *)malloc(sizeof(blocked_queue));	
-	init_b_queue(bq);
+	// create mutex queue
+	mq = (mutex_queue *)malloc(sizeof(mutex_queue));	
+	init_mutex_queue(mq);
+
+	// create join queue
+	jq = (join_queue *)malloc(sizeof(join_queue));	
+	init_join_queue(jq);
 
 	// create exit list
 	exit_list =  (list *)malloc(sizeof(list));
 	init_list(exit_list);
 
 	// Get scheduler context
-	// sch_ctx = *scheduler_context();
 	scheduler_context();
 
 	// Create a pointer to main TCB
 	main_tcb = malloc(sizeof(tcb));
 	main_tcb->thread_id = 0;
-	// main_tcb->thread_id = id++;
 	main_tcb->status = READY;	
 	main_tcb->priority = 1;
 	main_tcb->elapsed = 0;
@@ -417,16 +553,23 @@ void init(){
 
 void free_all(){
 	free_queue(rq);
-	free(bq);
+	free_mutex_queue(mq);
+	free_join_queue(jq);
 	free_list(exit_list);
 	free(main_tcb);
 	free(sch_ctx.uc_stack.ss_sp);
 
 	rq = NULL;
+	mq = NULL;
+	jq = NULL;
 	main_tcb = NULL;
 	exit_list = NULL;
 	curr_tcb = NULL;
 	id = 1;
+}
+
+int total_threads(){
+	int total = rq->size + mq->size + jq->size + exit_list->size; 
 }
 
 /*_____________ worker_t functions ____________*/
@@ -538,7 +681,7 @@ int worker_yield() {
 		return -1;
 	}
 
-	// disable_timer();
+	disable_timer();
 	// Update status of yeilding thread
 	curr_tcb->status = READY;
 	if(getcontext(&(curr_tcb->context)) < 0){
@@ -570,6 +713,12 @@ void worker_exit(void *value_ptr) {
 
 	add(exit_list, curr_tcb->thread_id);
 
+	tcb *parent = (tcb *)join_dequeue(jq, curr_tcb->thread_id);
+	if(parent != NULL){
+		parent->status = READY;
+		enqueue(rq, (void *)parent);
+	}
+
 	// - de-allocate any dynamic memory created when starting this thread
 	free(curr_tcb->stack);
 	free(curr_tcb);
@@ -592,14 +741,34 @@ int worker_join(worker_t thread, void **value_ptr) {
 
 	// While the thread we are waiting on is not in the exit list
 	// yeild to give other threads in run queue CPU resource
+	// while(get(exit_list, thread) == -1){
+	// 	worker_yield();
+	// }
+
+	if(getcontext(&(curr_tcb->context)) < 0){
+		perror("worker_join: getcontext");
+		exit(1);
+	}
+
 	while(get(exit_list, thread) == -1){
-		worker_yield();
+		curr_tcb->status = BLOCKED;
+		join_enqueue(jq, curr_tcb, thread);
+		curr_tcb = NULL;
+
+		disable_timer();
+
+		setcontext(&sch_ctx);
+		// worker_yield();
 	}
 
 	// Need to get return value
 
 	// Assuming yield de-allocates all tcb memory nothing left to
-	if(curr_tcb == main_tcb && rq->size == 0 && exit_list->size == 0 && bq->size == 0){
+	// if(curr_tcb == main_tcb && rq->size == 0 && exit_list->size == 0 && bq->size == 0){
+	// 	free_all();
+	// }
+
+	if(curr_tcb == main_tcb && total_threads() == 0){
 		free_all();
 	}
 	
@@ -643,8 +812,10 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 
 	while(__sync_lock_test_and_set(&mutex->locked, 1) != 0){
 		curr_tcb->status = BLOCKED;
-		b_enqueue(bq, curr_tcb, mutex);
+		mutex_enqueue(mq, curr_tcb, mutex);
 		curr_tcb = NULL;
+
+		disable_timer();
 
 		setcontext(&sch_ctx);
 	}
@@ -670,7 +841,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// __sync_lock_test_and_set(&mutex->locked, 1);
 	// __sync_lock_test_and_set(&mutex->holder, NULL);
 
-	tcb *thread = b_dequeue(bq, mutex);
+	tcb *thread = mutex_dequeue(mq, mutex);
 	if(thread != NULL){
 		thread->status = READY;
 		enqueue(rq, (void *)thread);
@@ -758,13 +929,13 @@ static void schedule() {
 		// If no thread has been interrupted by timer dequeue
 		// a thread and start executing its context
 		if(curr_tcb == NULL && rq->size > 0){
-			curr_tcb = (tcb *)dequeue(rq);	
+			curr_tcb = (tcb *)psjf_dequeue(rq);	
 			curr_tcb->status = SCHEDULED;		
 		}else if (rq->size > 0){
 			curr_tcb->status = READY;
 			enqueue(rq, curr_tcb);
 			
-			curr_tcb = (tcb *)dequeue(rq);
+			curr_tcb = (tcb *)psjf_dequeue(rq);
 			curr_tcb->status = SCHEDULED;
 		}
 

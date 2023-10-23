@@ -87,36 +87,6 @@ typedef struct run_queue{
 	int size;
 } run_queue;
 
-/*_________________________________ blocked_queue ___________________________________*/
-
-typedef struct b_node{
-	tcb *data;
-	worker_mutex_t *mutex;
-	struct b_node *next;
-} b_node;
-
-typedef struct blocked_queue{
-	b_node *head;
-	b_node *tail;
-	int size;
-} blocked_queue;
-
-/*_________________________________ list ___________________________________*/
-
-/* Node in list */
-typedef struct l_node{
-	worker_t data;
-	struct l_node *next;
-} l_node;
-
-/*
- * A linked-list based list implementation with constant time add operation
-*/
-typedef struct list{
-	l_node *head;
-	int size;
-} list;
-
 /* Function Declarations: */
 
 /* Given a pointer to a run_queue, function sets head/tail to NULL and size to 0 */
@@ -137,6 +107,80 @@ void free_queue(run_queue *q);
  * returns a pointer to the run_queue that was created
  */
 run_queue *make_run_queue();
+
+/*_________________________________ mutex_queue ___________________________________*/
+
+typedef struct m_node{
+	tcb *data;
+	worker_mutex_t *mutex;
+	struct m_node *next;
+} m_node;
+
+typedef struct mutex_queue{
+	m_node *head;
+	m_node *tail;
+	int size;
+} mutex_queue;
+
+/* Function Declarations: */
+
+void init_mutex_queue(mutex_queue *q);
+
+void mutex_enqueue(mutex_queue *q, tcb  *data, worker_mutex_t *mutex);
+
+void *mutex_dequeue(mutex_queue *q, worker_mutex_t *mutex);
+
+void free_mutex_queue(mutex_queue *q);
+
+/*_________________________________ join_queue ___________________________________*/
+
+typedef struct j_node{
+	tcb *data;
+	worker_t child;
+	struct j_node *next;
+} j_node;
+
+typedef struct join_queue{
+	j_node *head;
+	j_node *tail;
+	int size;
+} join_queue;
+
+void init_join_queue(join_queue *q);
+
+void join_enqueue(join_queue *q, tcb  *data, worker_t child);
+
+void *join_dequeue(join_queue *q, worker_t child);
+
+void free_join_queue(join_queue *q);
+
+/*_________________________________ list ___________________________________*/
+
+/* Node in list */
+typedef struct l_node{
+	worker_t data;
+	struct l_node *next;
+} l_node;
+
+/*
+ * A linked-list based list implementation with constant time add operation
+*/
+typedef struct list{
+	l_node *head;
+	int size;
+} list;
+
+/* Function Declarations: */
+
+void init_list(list *lst);
+
+void add(list *lst, worker_t data);
+
+int get(list *lst, worker_t data);
+
+void free_list(list *lst);
+
+/* Function Declarations: */
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, void
