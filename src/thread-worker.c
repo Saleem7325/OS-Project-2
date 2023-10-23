@@ -107,7 +107,8 @@ void *psjf_dequeue(run_queue *q){
 
 		if(tmp_tcb->elapsed == 0 || tmp == q->tail){
 			if(tmp == q->tail){
-				q->head, q->tail = NULL;
+				q->head = NULL;
+				q->tail = NULL;
 			}else{
 				q->head = next;
 			}
@@ -332,7 +333,7 @@ void join_enqueue(join_queue *q, tcb  *data, worker_t child){
 }
 
 void *join_dequeue(join_queue *q, worker_t child){
-	if(q->head == NULL){
+	if(!q || q->head == NULL){
 		return NULL;
 	}
 	

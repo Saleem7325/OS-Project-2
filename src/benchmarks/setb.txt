@@ -8,7 +8,9 @@ b worker_join
 b enqueue
 b dequeue
 b free_all
-b thread-worker.c:310
 b sig_handle
 b worker_mutex_lock
 b worker_mutex_unlock
+b psjf_dequeue
+b free_all
+b free_queue
