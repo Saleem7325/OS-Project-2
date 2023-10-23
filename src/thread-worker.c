@@ -46,7 +46,8 @@ int id = 1;
 /*_____________ run_queue functions ____________*/
 
 void init_queue(run_queue *q){
-	q->head, q->tail = NULL;
+	q->head = NULL;
+	q->tail = NULL;
 	q->size = 0;
 }
 
@@ -213,7 +214,8 @@ void print_queue(run_queue *rq){
 /*_______________________ mutex_queue functions ___________________________*/
 
 void init_mutex_queue(mutex_queue *q){
-	q->head, q->tail = NULL;
+	q->head = NULL;
+	q->tail = NULL;
 	q->size = 0;
 }
 
@@ -309,7 +311,8 @@ void free_mutex_queue(mutex_queue *q){
 /*_______________________ join_queue functions ___________________________*/
 
 void init_join_queue(join_queue *q){
-	q->head, q->tail = NULL;
+	q->head = NULL;
+	q->tail = NULL;
 	q->size = 0;
 }
 
