@@ -78,6 +78,7 @@ int main(int argc, char **argv) {
 		worker_join(wt[i], NULL);
 	}
 
+	print_app_stats();
 	// for(int i = 0; i < 10; i++){
 	// 	worker_create(&wt[i], NULL, &func1, &wt[i]);
 	// }

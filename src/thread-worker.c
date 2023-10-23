@@ -12,6 +12,7 @@ long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
 
+int total_threads_completed = 0;
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 
@@ -576,6 +577,28 @@ int total_threads(){
 	int total = rq->size + mq->size + jq->size + exit_list->size; 
 }
 
+
+double get_curr_time() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000000.0 + tv.tv_usec;
+}
+
+//Update all the stats
+void update_stats(double thread_turn_time, double thread_resp_time, long thread_cntx_switches) {
+	//Update context switches
+	tot_cntx_switches += thread_cntx_switches;
+
+	//Update each metrics averages
+	avg_turn_time = (avg_turn_time * total_threads_completed + thread_turn_time) / (total_threads_completed + 1);
+	avg_resp_time = (avg_resp_time * total_threads_completed + thread_turn_time) / (total_threads_completed + 1);
+
+	//Increment the count of completed threads
+	total_threads_completed++;
+
+}
+
+
 /*_____________ worker_t functions ____________*/
 
 /* create a new thread */
@@ -602,6 +625,13 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	control_block->priority = 1;
 
 	control_block->elapsed = 0;
+
+
+	//Stats
+	control_block->start_time = get_curr_time();  // Capture the current time in microseconds
+    control_block->first_scheduled_time = 0;  // Not scheduled yet
+    control_block->end_time = 0;  // Not finished yet
+    control_block->context_switches = 0;  // No context switches at creation
 
 
 	// Set up context for thread	
@@ -685,6 +715,9 @@ int worker_yield() {
 		return -1;
 	}
 
+	//Update context switch count for yielding thread
+	curr_tcb->context_switches++;
+
 	disable_timer();
 	// Update status of yeilding thread
 	curr_tcb->status = READY;
@@ -713,7 +746,15 @@ int worker_yield() {
 void worker_exit(void *value_ptr) {
 	// - add thread id to exit list
 	// disable_timer();
-	printf("Finished thread %d,	\telapsed: %d\n", (int)curr_tcb->thread_id, curr_tcb->elapsed);
+	//printf("Finished thread %d,	\telapsed: %d\n", (int)curr_tcb->thread_id, curr_tcb->elapsed);
+	//get thread end time and update time
+	curr_tcb->end_time = get_curr_time();
+
+	//Calculate individual thread's turn time and resp time
+	double ind_turn_time = curr_tcb->end_time - curr_tcb->start_time;
+	double ind_resp_time = curr_tcb->first_scheduled_time - curr_tcb->start_time;
+
+	update_stats(ind_turn_time, ind_resp_time, curr_tcb->context_switches);
 
 	add(exit_list, curr_tcb->thread_id);
 
@@ -891,7 +932,7 @@ void sig_handle(int sig_num){
 		return;
 	}
 
-	printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
+	//printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
 	enqueue(rq, curr_tcb);
 	curr_tcb = NULL;
 	setcontext(&sch_ctx);
@@ -942,6 +983,12 @@ static void schedule() {
 			curr_tcb = (tcb *)psjf_dequeue(rq);
 			curr_tcb->status = SCHEDULED;
 		}
+
+		// Update the statistics for the currently scheduled thread
+        if (curr_tcb->first_scheduled_time == 0) {
+            curr_tcb->first_scheduled_time = get_curr_time();
+        }
+        curr_tcb->context_switches++;
 
 		// printf("Running Thread %d\n", (int)curr_tcb->thread_id);
 		set_timer();	

@@ -53,7 +53,11 @@ typedef struct TCB {
 	ucontext_t context;
 	void *stack;
 	int priority;
-	int elapsed;	
+	int elapsed;
+	double start_time;
+	double first_scheduled_time;
+	double end_time;
+	long context_switches;	
 } tcb; 
 
 /* mutex struct definition */
@@ -211,6 +215,13 @@ int worker_mutex_destroy(worker_mutex_t *mutex);
 
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void);
+
+
+//Function for get current time in microseconds.
+double get_curr_time();
+//Calculate all the global stats
+void update_stats(double thread_turn_time, double thread_resp_time, long thread_cntx_switches);
+
 
 #ifdef USE_WORKERS
 #define pthread_t worker_t
