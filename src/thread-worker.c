@@ -6,6 +6,13 @@
 
 #include "thread-worker.h"
 
+// Scheduling Policy
+#ifndef MLFQ
+#define POLICY 1 /* PSJF */
+#else 
+#define POLICY 0 /* MLFQ */
+#endif
+
 //Global counter for total context switches and 
 //average turn around and response time
 long tot_cntx_switches=0;
@@ -16,8 +23,11 @@ int total_threads_completed = 0;
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 
-// Run queue
+// PSJF run queue
 run_queue *rq = NULL;
+
+// MLFQ run_queue
+run_queue **mlfq = NULL;
 
 // Blocked threads
 mutex_queue *mq = NULL;
@@ -473,11 +483,82 @@ void free_list(list *lst){
 	free(lst);
 }
 
+/*_____________ Multi level run queue functions _____________*/
+
+void init_mlfq(){
+	for(int i = 0; i < MLFQ_SIZE; i++){
+		mlfq[i] = (run_queue *)malloc(sizeof(run_queue));
+		init_queue(mlfq[i]);
+	}
+}
+
+int mlfq_size(){
+	int size = 0;
+
+	for(int i = 0; i < MLFQ_SIZE; i++){
+		size += mlfq[i]->size; 
+	}
+
+	return size;
+}
+
+void reset_blocked_priority(){
+	if(mq != NULL && mq->size > 0){
+		m_node *tmp = mq->head;
+
+		while(tmp != NULL){
+			tmp->data->elapsed = 0;
+			tmp = tmp->next;
+		}
+	}
+
+	if(jq != NULL && jq->size > 0){
+		j_node *tmp = jq->head;
+		
+		while(tmp != NULL){
+			tmp->data->elapsed = 0;
+			tmp = tmp->next;
+		}
+	}
+}
+
+void reset_priority(){
+	run_queue *top_q = mlfq[0];
+	for(int i = 1; i < MLFQ_SIZE; i++){
+		run_queue *q = mlfq[i];
+
+		if(!q || q->size == 0){
+			continue;
+		}
+
+		tcb *cb = (tcb *)dequeue(q);
+		while(cb != NULL){
+			cb->priority = 0;
+			enqueue(top_q, (void *)cb);
+			cb = (tcb *)dequeue(q);
+		}
+	}
+
+	reset_blocked_priority();
+}
+
+void free_mlfq(){
+	for(int i = 0; i < MLFQ_SIZE; i++){
+		free_queue(mlfq[i]); 
+	}
+
+	free(mlfq);
+}
+
 /*_____________ Set up functions ____________*/
 
 void sig_handle(int sig_num);
 
 static void schedule();
+
+static void sched_psjf();
+
+static void sched_mlfq();
 
 /* Creates context for scheduler */
 void scheduler_context(){
@@ -523,13 +604,17 @@ void init(){
 
 	// Create signal handler
 	memset(&sa, 0, sizeof(sa));
-	// sa.sa_handler = &schedule;
 	sa.sa_handler = &sig_handle;
 	sigaction(SIGPROF, &sa, NULL);
 
 	// create run queue
-	rq = (run_queue *)malloc(sizeof(run_queue));	
-	init_queue(rq);
+	if(POLICY){
+		rq = (run_queue *)malloc(sizeof(run_queue));	
+		init_queue(rq);
+	}else{
+		mlfq = (run_queue **)malloc(sizeof(run_queue *) * MLFQ_SIZE);
+		init_mlfq(mlfq);
+	}
 
 	// create mutex queue
 	mq = (mutex_queue *)malloc(sizeof(mutex_queue));	
@@ -550,14 +635,19 @@ void init(){
 	main_tcb = malloc(sizeof(tcb));
 	main_tcb->thread_id = 0;
 	main_tcb->status = READY;	
-	main_tcb->priority = 1;
+	main_tcb->priority = 0;
 	main_tcb->elapsed = 0;
 }
 
 /*_____________ Helper functions ____________*/
 
 void free_all(){
-	free_queue(rq);
+	if(POLICY){
+		free_queue(rq);
+	}else{
+		free_mlfq();
+	}
+	
 	free_mutex_queue(mq);
 	free_join_queue(jq);
 	free_list(exit_list);
@@ -565,6 +655,7 @@ void free_all(){
 	free(sch_ctx.uc_stack.ss_sp);
 
 	rq = NULL;
+	mlfq = NULL;
 	mq = NULL;
 	jq = NULL;
 	main_tcb = NULL;
@@ -574,7 +665,11 @@ void free_all(){
 }
 
 int total_threads(){
-	int total = rq->size + mq->size + jq->size + exit_list->size; 
+	if(POLICY){
+		return rq->size + mq->size + jq->size + exit_list->size; 
+	}else{
+		return mlfq_size() + mq->size + jq->size + exit_list->size;
+	}
 }
 
 
@@ -621,11 +716,9 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	// Set thread status 
 	control_block->status = READY;	
 
-	// Set thread priority, using 1 as default for testing
-	control_block->priority = 1;
-
+	// Set thread priority
+	control_block->priority = 0;
 	control_block->elapsed = 0;
-
 
 	//Stats
 	control_block->start_time = get_curr_time();  // Capture the current time in microseconds
@@ -633,9 +726,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
     control_block->end_time = 0;  // Not finished yet
     control_block->context_switches = 0;  // No context switches at creation
 
-
 	// Set up context for thread	
-	// ucontext_t tctx;
 	if(getcontext(&(control_block->context)) < 0){
 		perror("worker_create: getcontext");
 		exit(1);
@@ -656,11 +747,10 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 
 	// Make the context start running at the function passed as arg	
 	makecontext(&(control_block->context), (void *)function, 1, arg);
-	// control_block->context = tctx;
 
 	// If run queue does not exist(in the case of first call),
 	// create the run queue
-	if(!rq){
+	if(!rq && !mlfq){
 		init();
 
 		if(getcontext(&(main_tcb->context)) < 0){
@@ -670,15 +760,22 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 
 		// Check is current context was a result of setcontext()
 		if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
-			// printf("Made it\n");
 			return 0;
-		}else{
+		}
+		
+		if(POLICY){
 			// Push TCB onto run queue
 			enqueue(rq, (void *)control_block);
 			enqueue(rq, (void *)main_tcb);
+		}else{
+			enqueue(mlfq[0], (void *)control_block);
+			enqueue(mlfq[0], (void *)main_tcb);
 		}
-	}else{
+
+	}else if(POLICY){
 		enqueue(rq, (void *)control_block);
+	}else{
+		enqueue(mlfq[0], (void *)control_block);
 	}
 
 	// Continue executing thread
@@ -718,7 +815,7 @@ int worker_yield() {
 
 	//Update context switch count for yielding thread
 	curr_tcb->context_switches++;
-	if(++(curr_tcb->yeild_count) % 2 == 0){
+	if(POLICY && ++(curr_tcb->yeild_count) % 2 == 0){
 		curr_tcb->elapsed++;
 	}
 
@@ -735,7 +832,12 @@ int worker_yield() {
 	}
 
 	// Add yielding thread to run_queue
-	enqueue(rq, (void *)curr_tcb);
+	if(POLICY){
+		enqueue(rq, (void *)curr_tcb);
+	}else{
+		enqueue(mlfq[curr_tcb->priority], (void *)curr_tcb);	
+	}
+
 	curr_tcb = NULL;
 
 	//switch from thread context to scheduler context
@@ -763,7 +865,13 @@ void worker_exit(void *value_ptr) {
 	tcb *parent = (tcb *)join_dequeue(jq, curr_tcb->thread_id);
 	if(parent != NULL){
 		parent->status = READY;
-		enqueue(rq, (void *)parent);
+
+		if(POLICY){
+			enqueue(rq, (void *)parent);
+		}else{
+			enqueue(mlfq[curr_tcb->priority], (void *)parent);
+		}
+		
 	}
 
 	// - de-allocate any dynamic memory created when starting this thread
@@ -858,7 +966,13 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	tcb *thread = mutex_dequeue(mq, mutex);
 	if(thread != NULL){
 		thread->status = READY;
-		enqueue(rq, (void *)thread);
+
+		if(POLICY){
+			enqueue(rq, (void *)thread);
+		}else{
+			enqueue(mlfq[thread->priority], (void *)thread);
+		}
+		
 	}
 
 	return 0;
@@ -883,7 +997,12 @@ void sig_handle(int sig_num){
 		setcontext(&sch_ctx);
 	}
 
-	curr_tcb->elapsed++;
+	if(POLICY){
+		curr_tcb->elapsed++;
+	}else if(curr_tcb->priority < MLFQ_SIZE){
+		curr_tcb->priority++;
+	}
+
 	curr_tcb->status = READY;
 	if(getcontext(&(curr_tcb->context)) < 0){
 		perror("worker_yield: getcontext error");
@@ -896,7 +1015,12 @@ void sig_handle(int sig_num){
 	}
 
 	//printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
-	enqueue(rq, curr_tcb);
+	if(POLICY){
+		enqueue(rq, curr_tcb);
+	}else{
+		enqueue(mlfq[curr_tcb->priority], curr_tcb);
+	}
+
 	curr_tcb = NULL;
 	setcontext(&sch_ctx);
 }
@@ -908,22 +1032,28 @@ static void schedule() {
 	// schedule() function
 
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
-
-	// if (sched == PSJF)
-	//		sched_psjf();
-	// else if (sched == MLFQ)
-	// 		sched_mlfq();
-
 	// YOUR CODE HERE
-	// if (getcontext(&sch_ctx) < 0){
-	// 	perror("schedule: getcontext");
-	// 	exit(1);
-	// }
-	while(1){
-		// if(curr_tcb != NULL && curr_tcb->status == SCHEDULED){
-		// 	return;
-		// }
+	if(POLICY){
+		sched_psjf();
+	}else{
+		sched_mlfq();
+	}	
+		
+// - schedule policy
+// #ifndef MLFQ
+// 	// Choose PSJF
+// #else 
+// 	// Choose MLFQ
+// #endif
 
+}
+
+/* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
+static void sched_psjf() {
+	// - your own implementation of PSJF
+	// (feel free to modify arguments and return types)
+	// YOUR CODE HERE
+	while(1){
 		if(!rq){
 			free_all();
 			return;
@@ -957,23 +1087,7 @@ static void schedule() {
 		set_timer();	
 		setitimer(ITIMER_PROF, &timer, NULL);
 		setcontext(&(curr_tcb->context));
-	}	
-		
-// - schedule policy
-#ifndef MLFQ
-	// Choose PSJF
-#else 
-	// Choose MLFQ
-#endif
-
-}
-
-/* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
-static void sched_psjf() {
-	// - your own implementation of PSJF
-	// (feel free to modify arguments and return types)
-
-	// YOUR CODE HERE
+	}
 }
 
 
@@ -981,8 +1095,58 @@ static void sched_psjf() {
 static void sched_mlfq() {
 	// - your own implementation of MLFQ
 	// (feel free to modify arguments and return types)
-
 	// YOUR CODE HERE
+	int prev_dequeue_priority = 0;
+	int priority_count = 0;
+
+	while(1){
+		if(!mlfq){
+			free_all();
+			return;
+		}
+
+		if(curr_tcb == NULL && mlfq_size() == 0){
+			free_all();
+			return;
+		}
+
+		if(curr_tcb != NULL){
+			curr_tcb->status = READY;
+			enqueue(mlfq[curr_tcb->priority], curr_tcb);
+		}
+
+		for(int i = 0; i < MLFQ_SIZE; i++){
+			curr_tcb = (tcb *)dequeue(mlfq[i]);
+
+			if(curr_tcb == NULL){
+				continue;
+			}
+
+			if(i == prev_dequeue_priority){
+				priority_count++;
+			}else{
+				prev_dequeue_priority = i;
+				priority_count = 1;
+			}
+
+			if(prev_dequeue_priority == (MLFQ_SIZE - 1) && priority_count == 5){
+				reset_priority();
+				prev_dequeue_priority = 0;
+				priority_count = 0;
+			}
+		}
+
+		// Update the statistics for the currently scheduled thread
+        if (curr_tcb->first_scheduled_time == 0) {
+            curr_tcb->first_scheduled_time = get_curr_time();
+        }
+        curr_tcb->context_switches++;
+
+		// printf("Running Thread %d\n", (int)curr_tcb->thread_id);
+		set_timer();	
+		setitimer(ITIMER_PROF, &timer, NULL);
+		setcontext(&(curr_tcb->context));
+	}
 }
 
 //DO NOT MODIFY THIS FUNCTION
