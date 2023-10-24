@@ -54,6 +54,7 @@ typedef struct TCB {
 	void *stack;
 	int priority;
 	int elapsed;
+	int yeild_count;
 	double start_time;
 	double first_scheduled_time;
 	double end_time;

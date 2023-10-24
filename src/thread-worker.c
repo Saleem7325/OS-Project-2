@@ -92,7 +92,6 @@ void *dequeue(run_queue *q){
 	return data;    
 }
 
-/* TODO: Dequeue the node with minimum counter/elapsed value */
 void *psjf_dequeue(run_queue *q){
 		if(!rq){
 			return NULL;
@@ -161,7 +160,6 @@ void *psjf_dequeue(run_queue *q){
 
 }
 
-/* TODO: Update function to free every dynamic mem-reference in TCB */
 void free_queue(run_queue *q){
 	node *tmp = q->head;
 	while(tmp != NULL){
@@ -175,6 +173,7 @@ void free_queue(run_queue *q){
 		}
 
 		void *ctx_stk = cb->context.uc_stack.ss_sp;
+
 		// Free stack, tcb, and node
 		free(ctx_stk);
 		free(prev->data);
@@ -237,7 +236,6 @@ void mutex_enqueue(mutex_queue *q, tcb  *data, worker_mutex_t *mutex){
 	}
  
 	q->size++;
-	// printf("Enqueue: %d\n", q->size);
 }
 
 void *mutex_dequeue(mutex_queue *q, worker_mutex_t *mutex){
@@ -300,6 +298,7 @@ void free_mutex_queue(mutex_queue *q){
 		}
 
 		void *ctx_stk = cb->context.uc_stack.ss_sp;
+
 		// Free stack, tcb, and node
 		free(ctx_stk);
 		free(prev->data);
@@ -395,6 +394,7 @@ void free_join_queue(join_queue *q){
 		}
 
 		void *ctx_stk = cb->context.uc_stack.ss_sp;
+
 		// Free stack, tcb, and node
 		free(ctx_stk);
 		free(prev->data);
@@ -688,7 +688,6 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void *(*function)(vo
 	
 	// Switch to scheduler context					
 	setcontext(&sch_ctx);
-	// schedule();
 	
 	return 0;
 };
@@ -715,10 +714,14 @@ int worker_yield() {
 		return -1;
 	}
 
+	disable_timer();
+
 	//Update context switch count for yielding thread
 	curr_tcb->context_switches++;
+	if(++(curr_tcb->yeild_count) % 2 == 0){
+		curr_tcb->elapsed++;
+	}
 
-	disable_timer();
 	// Update status of yeilding thread
 	curr_tcb->status = READY;
 	if(getcontext(&(curr_tcb->context)) < 0){
@@ -737,7 +740,6 @@ int worker_yield() {
 
 	//switch from thread context to scheduler context
 	setcontext(&sch_ctx);
-	// schedule();
 			
 	return 0;
 };
@@ -745,7 +747,7 @@ int worker_yield() {
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
 	// - add thread id to exit list
-	// disable_timer();
+	disable_timer();
 	//printf("Finished thread %d,	\telapsed: %d\n", (int)curr_tcb->thread_id, curr_tcb->elapsed);
 	//get thread end time and update time
 	curr_tcb->end_time = get_curr_time();
@@ -769,9 +771,6 @@ void worker_exit(void *value_ptr) {
 	free(curr_tcb);
 	curr_tcb = NULL;
 
-	
-	//TODO: save value of arg, need to update list
-	// schedule();
 	setcontext(&sch_ctx);
 };
 
@@ -783,35 +782,20 @@ int worker_join(worker_t thread, void **value_ptr) {
 	// - de-allocate any dynamic memory created by the joining thread
   
 	// YOUR CODE HERE
-
-	// While the thread we are waiting on is not in the exit list
-	// yeild to give other threads in run queue CPU resource
-	// while(get(exit_list, thread) == -1){
-	// 	worker_yield();
-	// }
-
 	if(getcontext(&(curr_tcb->context)) < 0){
 		perror("worker_join: getcontext");
 		exit(1);
 	}
 
 	while(get(exit_list, thread) == -1){
+		disable_timer();
+
 		curr_tcb->status = BLOCKED;
 		join_enqueue(jq, curr_tcb, thread);
 		curr_tcb = NULL;
 
-		disable_timer();
-
 		setcontext(&sch_ctx);
-		// worker_yield();
 	}
-
-	// Need to get return value
-
-	// Assuming yield de-allocates all tcb memory nothing left to
-	// if(curr_tcb == main_tcb && rq->size == 0 && exit_list->size == 0 && bq->size == 0){
-	// 	free_all();
-	// }
 
 	if(curr_tcb == main_tcb && total_threads() == 0){
 		free_all();
@@ -847,30 +831,17 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 		exit(1);
 	}
 
-	// while(mutex->locked){
-	// 	curr_tcb->status = BLOCKED;
-	// 	b_enqueue(bq, curr_tcb, mutex);
-	// 	curr_tcb = NULL;
-
-	// 	setcontext(&sch_ctx);
-	// }
-
 	while(__sync_lock_test_and_set(&mutex->locked, 1) != 0){
+		disable_timer();
+
 		curr_tcb->status = BLOCKED;
 		mutex_enqueue(mq, curr_tcb, mutex);
 		curr_tcb = NULL;
 
-		disable_timer();
-
 		setcontext(&sch_ctx);
 	}
 	
-	// mutex->locked = 1;
 	mutex->holder = curr_tcb;
-	// __sync_lock_test_and_set(&mutex->locked, 1);
-	// __sync_lock_test_and_set(&mutex->holder, curr_tcb);
-	
-
 	return 0;
 };
 
@@ -883,20 +854,12 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 	// YOUR CODE HERE
 	mutex->locked = 0;
 	mutex->holder = NULL;
-	// __sync_lock_test_and_set(&mutex->locked, 1);
-	// __sync_lock_test_and_set(&mutex->holder, NULL);
 
 	tcb *thread = mutex_dequeue(mq, mutex);
 	if(thread != NULL){
 		thread->status = READY;
 		enqueue(rq, (void *)thread);
-		// tcb *thread = b_dequeue(bq, mutex);
 	}
-	// while(thread != NULL){
-	// 	thread->status = READY;
-	// 	enqueue(rq, (void *)thread);
-	// 	tcb *thread = b_dequeue(bq, mutex);
-	// }
 
 	return 0;
 };
