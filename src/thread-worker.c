@@ -581,7 +581,7 @@ int total_threads(){
 double get_curr_time() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000000.0 + tv.tv_usec;
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
 }
 
 //Update all the stats
@@ -591,7 +591,7 @@ void update_stats(double thread_turn_time, double thread_resp_time, long thread_
 
 	//Update each metrics averages
 	avg_turn_time = (avg_turn_time * total_threads_completed + thread_turn_time) / (total_threads_completed + 1);
-	avg_resp_time = (avg_resp_time * total_threads_completed + thread_turn_time) / (total_threads_completed + 1);
+	avg_resp_time = (avg_resp_time * total_threads_completed + thread_resp_time) / (total_threads_completed + 1);
 
 	//Increment the count of completed threads
 	total_threads_completed++;

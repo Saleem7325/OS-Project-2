@@ -85,8 +85,10 @@ void verify() {
 				sum += mem[k*4 + j];
 			}
 		}
+		
 		fclose(f);
 	}
+	printf("verified sum is: %d\n", sum);
 }
 
 
