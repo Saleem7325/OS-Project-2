@@ -645,6 +645,8 @@ void init(){
 /*_____________ Helper functions ____________*/
 
 void free_all(){
+	disable_timer(); 
+	
 	if(POLICY){
 		free_queue(rq);
 	}else{
@@ -1104,7 +1106,7 @@ static void sched_mlfq() {
 
 	while(1){
 		if(!mlfq){
-			free_all();
+			// free_all();
 			return;
 		}
 
