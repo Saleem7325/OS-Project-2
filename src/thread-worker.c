@@ -1139,7 +1139,7 @@ static void sched_mlfq() {
 			}
 		}
 
-		if(prev_dequeue_priority == (MLFQ_SIZE - 1) && priority_count == id * 2){
+		if(prev_dequeue_priority == (MLFQ_SIZE - 1) && priority_count == total_threads() * 2){
 			curr_tcb->priority = 0;
 			reset_priority();
 			prev_dequeue_priority = 0;
