@@ -18,10 +18,10 @@
 #define BLOCKED 2
 
 /* Minimum number of microsends a thread can run before context switch */
-#define QUANTUM 10000
+#define QUANTUM 50000
 
 /* Number of queues when scheduling with MLFQ */
-#define MLFQ_SIZE 4
+#define MLFQ_SIZE 8
 
 /* Stack Size for TCB */
 #define STACK_SIZE SIGSTKSZ
