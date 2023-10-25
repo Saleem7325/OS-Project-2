@@ -493,8 +493,11 @@ void init_mlfq(){
 }
 
 int mlfq_size(){
-	int size = 0;
+	if(!mlfq){
+		return 0;
+	}
 
+	int size = 0;
 	for(int i = 0; i < MLFQ_SIZE; i++){
 		size += mlfq[i]->size; 
 	}
@@ -796,12 +799,12 @@ int worker_yield() {
 	// - switch from thread context to scheduler context
 
 	// Checking if run queue exists. If no, no need to yield.
-	if(!rq) {
+	if(!rq && !mlfq) {
 		return -1;
 	}
 
 	// If no other threads to run, continue running thread
-	if (rq->size == 0) {
+	if (rq->size == 0 && mlfq_size == 0) {
 		return -1;
 	}
 
@@ -999,7 +1002,7 @@ void sig_handle(int sig_num){
 
 	if(POLICY){
 		curr_tcb->elapsed++;
-	}else if(curr_tcb->priority < MLFQ_SIZE){
+	}else if(curr_tcb->priority < (MLFQ_SIZE - 1)){
 		curr_tcb->priority++;
 	}
 
@@ -1014,7 +1017,7 @@ void sig_handle(int sig_num){
 		return;
 	}
 
-	//printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
+	// printf("Timer Interrupt: Thread %d\n", (int)curr_tcb->thread_id);
 	if(POLICY){
 		enqueue(rq, curr_tcb);
 	}else{
@@ -1118,22 +1121,28 @@ static void sched_mlfq() {
 		for(int i = 0; i < MLFQ_SIZE; i++){
 			curr_tcb = (tcb *)dequeue(mlfq[i]);
 
-			if(curr_tcb == NULL){
+			if(!curr_tcb){
 				continue;
 			}
 
+			curr_tcb->status = SCHEDULED;
+
 			if(i == prev_dequeue_priority){
 				priority_count++;
+				break;
 			}else{
 				prev_dequeue_priority = i;
 				priority_count = 1;
+				break;
 			}
+		}
 
-			if(prev_dequeue_priority == (MLFQ_SIZE - 1) && priority_count == 5){
-				reset_priority();
-				prev_dequeue_priority = 0;
-				priority_count = 0;
-			}
+		if(prev_dequeue_priority == (MLFQ_SIZE - 1) && priority_count == 5){
+			curr_tcb->priority = 0;
+			reset_priority();
+			prev_dequeue_priority = 0;
+			priority_count = 0;
+			// printf("Resetting Priority\n");
 		}
 
 		// Update the statistics for the currently scheduled thread

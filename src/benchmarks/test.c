@@ -12,7 +12,7 @@ int inc2 = 0;
 
 void *func(void *args){
 
-	for(int i = 0; i < 10000000; i++){
+	for(int i = 0; i < 1000000; i++){
 		worker_mutex_lock(&mutex);
 		inc++;
 		worker_mutex_unlock(&mutex);
@@ -28,7 +28,8 @@ void *func(void *args){
 }
 
 void *b_func(void *args){
-	for(int i = 0; i < 1000000000; i++){
+	// for(int i = 0; i < 1000000000; i++){
+	for(int i = 0; i < 1000000; i++){
 
 	}
 
@@ -62,30 +63,25 @@ int main(int argc, char **argv) {
 
 	worker_t wt[256];
 
-	for(int i = 0; i < 256; i++){
+	for(int i = 0; i < 20; i++){
 		worker_create(&wt[i], NULL, &b_func, &wt[i]);
 	}
 
-	for(int i = 0; i < 256; i++){
+	for(int i = 0; i < 20; i++){
 		worker_join(wt[i], NULL);
 	}
 
-	for(int i = 0; i < 256; i++){
-		worker_create(&wt[i], NULL, &b_func, &wt[i]);
-	}
+	// print_app_stats();
 
-	for(int i = 0; i < 256; i++){
-		worker_join(wt[i], NULL);
-	}
-
-	print_app_stats();
-	// for(int i = 0; i < 10; i++){
+	// for(int i = 0; i < 50; i++){
 	// 	worker_create(&wt[i], NULL, &func1, &wt[i]);
 	// }
 
-	// for(int i = 0; i < 10; i++){
+	// for(int i = 0; i < 50; i++){
 	// 	worker_join(wt[i], NULL);
 	// }
+
+	// print_app_stats();
 
 	// MUTEX tests (main function)
 	// printf("%d\n", SIGSTKSZ);
@@ -93,20 +89,23 @@ int main(int argc, char **argv) {
 	// worker_mutex_init(&mutex1, NULL);
 	// worker_mutex_init(&mutex2, NULL);
 	
-	// for(int i = 0; i < 5; i++){
+	// for(int i = 0; i < 40; i++){
 	// 	worker_create(&wt[i], NULL, &func, &wt[i]);
 	// }
 
-	// for(int i = 0; i < 5; i++){
+	// for(int i = 0; i < 40; i++){
 	// 	worker_join(wt[i], NULL);
 	// }
 
 	// worker_mutex_destroy(&mutex);
 	// worker_mutex_destroy(&mutex1);
 	// worker_mutex_destroy(&mutex2);
+
 	// printf("inc: %d\n", inc);
 	// printf("inc1: %d\n", inc1);
 	// printf("inc2: %d\n", inc2);
+
+	print_app_stats();
 
 	return 0;
 }
